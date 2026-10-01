@@ -1,0 +1,49 @@
+services:
+  pkl-db:
+    image: public.ecr.aws/supabase/postgres:17.6.1.143
+    container_name: pkl-local-postgres
+    restart: unless-stopped
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pkl_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pkl-storage:
+    image: public.ecr.aws/supabase/storage-api:v1.62.5
+    container_name: pkl-local-storage
+    restart: unless-stopped
+    ports:
+      - "54321:5000"
+    environment:
+      DATABASE_URL: postgresql://supabase_storage_admin:postgres@pkl-db:5432/postgres
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      STORAGE_BACKEND: file
+      FILE_SIZE_LIMIT: 52428800
+      TENANT_ID: stub
+      STORAGE_S3_REGION: local
+      GLOBAL_S3_BUCKET: stub
+      S3_PROTOCOL_ENABLED: "true"
+      S3_PROTOCOL_ACCESS_KEY_ID: 625729a08b95bf1b7ff351a663f3a23c
+      S3_PROTOCOL_ACCESS_KEY_SECRET: 850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907
+      S3_PROTOCOL_PREFIX: /storage/v1
+      REST_URL_PREFIX: /storage/v1
+      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - pkl_storage_data:/var/lib/storage
+    depends_on:
+      pkl-db:
+        condition: service_healthy
+
+volumes:
+  pkl_postgres_data:
+  pkl_storage_data:
