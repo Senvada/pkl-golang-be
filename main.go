@@ -13,6 +13,7 @@ import (
 	"pkl-golang-be/internal/infra/migrate"
 	"pkl-golang-be/internal/infra/server"
 	"pkl-golang-be/internal/infra/storage"
+	"pkl-golang-be/internal/slices/auth"
 )
 
 func main() {
@@ -68,6 +69,15 @@ func runServer(cfg *config.Config) {
 
 	// Initialize and Run Server
 	srv := server.New(cfg)
+
+	// API v1 Router
+	apiV1 := srv.App.Group("/api/v1")
+
+	// Slices: Auth
+	authService := auth.NewService(db, cfg)
+	authHandler := auth.NewHandler(authService, cfg)
+	auth.RegisterRoutes(apiV1, authHandler, cfg)
+
 	if err := srv.Run(); err != nil {
 		slog.Error("Server terminated unexpectedly", "error", err)
 		os.Exit(1)

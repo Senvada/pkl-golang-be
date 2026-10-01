@@ -1,0 +1,148 @@
+### PKL Backend API v2 - Auth Slice HTTP Test Client
+### Digunakan dengan REST Client extension di VS Code / Cursor / GoLand
+
+@baseUrl = http://localhost:3000/api/v1
+
+# Role IDs dari database lokal:
+# Siswa: b94cec6f-805e-4474-a4d5-4b46ba9227e8
+# Admin: fe106b1e-f013-4057-b20f-5d484c130159
+# Guru: 334e5885-c240-40a0-ad61-10c31436eff1
+# Pembimbing: 211bed60-6ac7-43cd-aa0a-4ea8382cb227
+@defaultRoleId = b94cec6f-805e-4474-a4d5-4b46ba9227e8
+
+# Akun uji coba
+@testEmail = siswa_testing@smkn6malang.sch.id
+@testPassword = Password123!
+
+
+# ==============================================================================
+# 1. HEALTH CHECK
+# ==============================================================================
+### Cek status server
+GET http://localhost:3000/health
+
+
+# ==============================================================================
+# 2. REGISTER
+# ==============================================================================
+### Registrasi Akun Siswa Baru (Berhasil)
+# @name register
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ahmad Siswa PKL",
+  "email": "{{testEmail}}",
+  "password": "{{testPassword}}",
+  "role_id": "{{defaultRoleId}}"
+}
+
+### Registrasi Gagal - Validasi Error (Field kosong / format salah)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "A",
+  "email": "bukan-email",
+  "password": "123",
+  "role_id": "00000000-0000-0000-0000-000000000000"
+}
+
+### Registrasi Gagal - Email Duplikat (Conflict 409)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ahmad Siswa PKL",
+  "email": "{{testEmail}}",
+  "password": "{{testPassword}}",
+  "role_id": "{{defaultRoleId}}"
+}
+
+
+# ==============================================================================
+# 3. LOGIN
+# ==============================================================================
+### Login Berhasil (Menyimpan token otomatis untuk request berikutnya)
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{testEmail}}",
+  "password": "{{testPassword}}",
+  "remember": true
+}
+
+### Token yang didapat otomatis dari request login di atas
+@authToken = {{login.response.body.data.access_token}}
+
+### Login Gagal - Password Salah (Unauthorized 401)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{testEmail}}",
+  "password": "PasswordSalah123!"
+}
+
+### Login Gagal - Email Tidak Ditemukan
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "tidakada@smkn6malang.sch.id",
+  "password": "Password123!"
+}
+
+
+# ==============================================================================
+# 4. PROFILE (/me - PROTECTED)
+# ==============================================================================
+### Ambil Profil Pengguna Saat Ini (Wajib Header Authorization)
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{authToken}}
+
+### Ambil Profil Gagal - Tanpa Token (Unauthorized 401)
+GET {{baseUrl}}/auth/me
+
+
+# ==============================================================================
+# 5. REFRESH TOKEN
+# ==============================================================================
+### Perbarui Access Token (Menggunakan Cookie HTTPOnly yang disimpan otomatis)
+POST {{baseUrl}}/auth/refresh
+
+
+# ==============================================================================
+# 6. GOOGLE OAUTH
+# ==============================================================================
+### Google Login - Ditolak jika belum di-bind (Aturan Bind-Only)
+# Kirim dummy credential untuk melihat pesan penolakan bind-only
+POST {{baseUrl}}/auth/google/login
+Content-Type: application/json
+
+{
+  "credential": "dummy_google_credential_token_here"
+}
+
+### Google Bind - Menautkan Akun Google ke Profil (Protected)
+# Masukkan Google ID Token asli dari frontend (Google OAuth Client)
+POST {{baseUrl}}/auth/google/bind
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "credential": "MASUKKAN_GOOGLE_ID_TOKEN_DARI_FRONTEND_DI_SINI"
+}
+
+### Google Unbind - Melepas Tautan Akun Google (Protected)
+DELETE {{baseUrl}}/auth/google/unbind
+Authorization: Bearer {{authToken}}
+
+
+# ==============================================================================
+# 7. LOGOUT
+# ==============================================================================
+### Keluar dari Akun (Mencabut sesi dan menghapus cookie)
+POST {{baseUrl}}/auth/logout

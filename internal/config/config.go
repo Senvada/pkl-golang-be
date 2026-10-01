@@ -38,6 +38,7 @@ type Config struct {
 	// Auth
 	JWTSecret      string
 	JWTExpiryHours int
+	GoogleClientID string
 }
 
 func LoadConfig() (*Config, error) {
@@ -74,6 +75,7 @@ func LoadConfig() (*Config, error) {
 		// Auth
 		JWTSecret:      getEnv("JWT_SECRET", "super_secret_jwt_key_pkl_development_minimum_32_chars"),
 		JWTExpiryHours: getEnvAsInt("JWT_EXPIRY_HOURS", 72),
+		GoogleClientID: getEnv("GOOGLE_CLIENT_ID", ""),
 	}
 
 	return cfg, nil
