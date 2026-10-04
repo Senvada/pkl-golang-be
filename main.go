@@ -11,6 +11,7 @@ import (
 	"pkl-golang-be/internal/config"
 	"pkl-golang-be/internal/infra/database"
 	"pkl-golang-be/internal/infra/migrate"
+	"pkl-golang-be/internal/infra/seeder"
 	"pkl-golang-be/internal/infra/server"
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/slices/auth"
@@ -31,6 +32,9 @@ func main() {
 	switch command {
 	case "serve":
 		runServer(cfg)
+
+	case "seed":
+		runSeed(cfg, os.Args[2:])
 
 	case "migrate":
 		runMigrate(cfg, os.Args[2:])
@@ -58,7 +62,12 @@ func runServer(cfg *config.Config) {
 		slog.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	_ = db // will be passed to slices later
+
+	// Auto-seed Default Admin (if not present, respecting soft-deleted accounts)
+	if err := seeder.EnsureDefaultAdmin(db, cfg); err != nil {
+		slog.Error("Failed to ensure default admin user", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize Storage Client (S3)
 	s3Client, err := storage.NewS3Client(cfg)
@@ -189,6 +198,31 @@ func runTestS3(cfg *config.Config) {
 	)
 }
 
+func runSeed(cfg *config.Config, args []string) {
+	db, err := database.Connect(cfg)
+	if err != nil {
+		slog.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+
+	opts := seeder.Options{}
+	for _, arg := range args {
+		switch arg {
+		case "--restore":
+			opts.RestoreSoftDeleted = true
+		case "--force-password", "--force":
+			opts.ForceUpdatePassword = true
+		}
+	}
+
+	slog.Info("Running database seeder...")
+	if err := seeder.SeedDefaultAdmin(db, cfg, opts); err != nil {
+		slog.Error("Default admin seeder failed", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("Database seeder finished successfully")
+}
+
 func printHelp() {
 	fmt.Println(`PKL Backend API v2 (Vertical Slice Architecture)
 
@@ -196,7 +230,8 @@ Usage:
   go run main.go [command]
 
 Available Commands:
-  serve                 Start the Fiber HTTP API server (default)
+  serve                 Start the Fiber HTTP API server (default, auto-seeds default admin)
+  seed [flags]          Seed default admin user (--restore to restore soft-deleted, --force to update password)
   migrate [action]      Run database migrations (up, down, fresh, drop, version, create)
   test-db               Test connection to PostgreSQL database
   test-s3               Test S3 storage connection & generate sample presigned URL
