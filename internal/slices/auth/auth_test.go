@@ -70,6 +70,15 @@ func TestAuth_Flow(t *testing.T) {
 	uniqueEmail := "siswa_" + uuid.NewString()[:8] + "@smkn6malang.sch.id"
 	password := "Secret123!"
 
+	doTest := func(req *http.Request) *http.Response {
+		t.Helper()
+		resp, err := app.Test(req, 10000)
+		if err != nil {
+			t.Fatalf("Request %s %s failed: %v", req.Method, req.URL.Path, err)
+		}
+		return resp
+	}
+
 	// ==========================================
 	// 1. REGISTER
 	// ==========================================
@@ -83,10 +92,7 @@ func TestAuth_Flow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("Register request failed: %v", err)
-	}
+	resp := doTest(req)
 	if resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
 		t.Fatalf("Expected status 201 Created, got %d: %s", resp.StatusCode, string(respBody))
@@ -122,7 +128,7 @@ func TestAuth_Flow(t *testing.T) {
 	// ==========================================
 	reqDup := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(bodyBytes))
 	reqDup.Header.Set("Content-Type", "application/json")
-	respDup, _ := app.Test(reqDup)
+	respDup := doTest(reqDup)
 	if respDup.StatusCode != http.StatusConflict {
 		t.Fatalf("Expected 409 Conflict for duplicate email, got %d", respDup.StatusCode)
 	}
@@ -137,7 +143,7 @@ func TestAuth_Flow(t *testing.T) {
 	badLoginBytes, _ := json.Marshal(badLoginPayload)
 	reqBadLogin := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(badLoginBytes))
 	reqBadLogin.Header.Set("Content-Type", "application/json")
-	respBadLogin, _ := app.Test(reqBadLogin)
+	respBadLogin := doTest(reqBadLogin)
 	if respBadLogin.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("Expected 401 Unauthorized for wrong password, got %d", respBadLogin.StatusCode)
 	}
@@ -153,7 +159,7 @@ func TestAuth_Flow(t *testing.T) {
 	loginBytes, _ := json.Marshal(loginPayload)
 	reqLogin := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBytes))
 	reqLogin.Header.Set("Content-Type", "application/json")
-	respLogin, _ := app.Test(reqLogin)
+	respLogin := doTest(reqLogin)
 	if respLogin.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 OK for valid login, got %d", respLogin.StatusCode)
 	}
@@ -163,7 +169,7 @@ func TestAuth_Flow(t *testing.T) {
 	// ==========================================
 	reqMe := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	reqMe.Header.Set("Authorization", "Bearer "+accessToken)
-	respMe, _ := app.Test(reqMe)
+	respMe := doTest(reqMe)
 	if respMe.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 OK for /me, got %d", respMe.StatusCode)
 	}
@@ -185,7 +191,7 @@ func TestAuth_Flow(t *testing.T) {
 	// ==========================================
 	reqRefresh := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
 	reqRefresh.AddCookie(refreshTokenCookie)
-	respRefresh, _ := app.Test(reqRefresh)
+	respRefresh := doTest(reqRefresh)
 	if respRefresh.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 OK for /refresh, got %d", respRefresh.StatusCode)
 	}
@@ -230,7 +236,7 @@ func TestAuth_Flow(t *testing.T) {
 	// Now check /me again -> GoogleBound must be true!
 	reqMeAfterBind := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	reqMeAfterBind.Header.Set("Authorization", "Bearer "+accessToken)
-	respMeAfterBind, _ := app.Test(reqMeAfterBind)
+	respMeAfterBind := doTest(reqMeAfterBind)
 	var meAfterBindEnv struct {
 		Data auth.UserProfileDTO `json:"data"`
 	}
@@ -244,7 +250,7 @@ func TestAuth_Flow(t *testing.T) {
 	// ==========================================
 	reqUnbind := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/google/unbind", nil)
 	reqUnbind.Header.Set("Authorization", "Bearer "+accessToken)
-	respUnbind, _ := app.Test(reqUnbind)
+	respUnbind := doTest(reqUnbind)
 	if respUnbind.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 OK for /google/unbind, got %d", respUnbind.StatusCode)
 	}
@@ -252,7 +258,7 @@ func TestAuth_Flow(t *testing.T) {
 	// Check /me again -> GoogleBound must be false!
 	reqMeAfterUnbind := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	reqMeAfterUnbind.Header.Set("Authorization", "Bearer "+accessToken)
-	respMeAfterUnbind, _ := app.Test(reqMeAfterUnbind)
+	respMeAfterUnbind := doTest(reqMeAfterUnbind)
 	var meAfterUnbindEnv struct {
 		Data auth.UserProfileDTO `json:"data"`
 	}
@@ -266,7 +272,7 @@ func TestAuth_Flow(t *testing.T) {
 	// ==========================================
 	reqLogout := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
 	reqLogout.AddCookie(refreshTokenCookie)
-	respLogout, _ := app.Test(reqLogout)
+	respLogout := doTest(reqLogout)
 	if respLogout.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 OK for /logout, got %d", respLogout.StatusCode)
 	}
