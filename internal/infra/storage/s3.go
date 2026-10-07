@@ -145,4 +145,3 @@ func (s *S3Client) EnsureBucket(ctx context.Context) error {
 	slog.Info("✅ Successfully created S3 storage bucket", "bucket", s.bucket)
 	return nil
 }
-
