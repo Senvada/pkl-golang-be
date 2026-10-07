@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for local development credentials and mock keys"
+paths = [
+    '''.env.example''',
+    '''docker-compose.yml'''
+]
+regexes = [
+    '''625729a08b95bf1b7ff351a663f3a23c''',
+    '''850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907'''
+]

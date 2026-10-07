@@ -74,7 +74,6 @@ jobs:
       name: staging
     steps:
       - name: Connect Tailscale
-        if: ${{ secrets.TAILSCALE_AUTHKEY != '' }}
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}

@@ -1,0 +1,10 @@
+# Supabase local development credentials and mock keys in git history
+e90e8ac95ea63c4235985901dca6bf3bda242b84:internal/config/config.go:generic-api-key:98
+e90e8ac95ea63c4235985901dca6bf3bda242b84:internal/config/config.go:generic-api-key:99
+658330205927070def2a44b366daa6e9dc2b93b8:docker-compose.yml:jwt:38
+658330205927070def2a44b366daa6e9dc2b93b8:docker-compose.yml:jwt:39
+658330205927070def2a44b366daa6e9dc2b93b8:docker-compose.yml:generic-api-key:35
+658330205927070def2a44b366daa6e9dc2b93b8:.env.example:generic-api-key:21
+658330205927070def2a44b366daa6e9dc2b93b8:.env.example:generic-api-key:22
+658330205927070def2a44b366daa6e9dc2b93b8:internal/config/config.go:generic-api-key:69
+658330205927070def2a44b366daa6e9dc2b93b8:internal/config/config.go:generic-api-key:70

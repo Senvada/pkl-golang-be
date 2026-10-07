@@ -128,12 +128,10 @@ jobs:
       name: production
     steps:
       - name: Connect Tailscale
-        if: ${{ secrets.TAILSCALE_AUTHKEY != '' }}
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
       - name: Trigger Deploy via SEHooks
-        if: ${{ secrets.PRODUCTION_BE_WEBHOOK_URL != '' }}
         run: |
           curl -i --fail -sS -X POST "${{ secrets.PRODUCTION_BE_WEBHOOK_URL }}"
