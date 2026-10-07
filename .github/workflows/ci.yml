@@ -1,0 +1,140 @@
+name: CI — Quality, Test & Migration Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Security Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks CLI
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.24.0/gitleaks_8.24.0_linux_x64.tar.gz | sudo tar -xz -C /usr/local/bin gitleaks
+
+      - name: Scan Secrets (Gitleaks)
+        run: gitleaks git --verbose --redact
+
+  lint:
+    name: Go Lint & Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Verify Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "❌ CRITICAL: Unformatted Go files found:"
+            echo "$unformatted"
+            echo "Run 'gofmt -w .' to fix."
+            exit 1
+          fi
+          echo "✅ All Go files are properly formatted."
+
+      - name: Run Go Vet
+        run: go vet ./...
+
+  test-and-migrate:
+    name: Database Migration & Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: pkl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: development
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgrespassword
+      DB_NAME: pkl_test
+      DB_SSLMODE: disable
+      JWT_SECRET: super_secret_jwt_key_pkl_development_minimum_32_chars
+      DEFAULT_ADMIN_NAME: "Administrator PKL"
+      DEFAULT_ADMIN_EMAIL: "admin@smkn6malang.sch.id"
+      DEFAULT_ADMIN_PASSWORD: "PKL@2026"
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Verify Database Connection
+        run: go run main.go test-db
+
+      - name: Run Database Migrations Up
+        run: go run main.go migrate up
+
+      - name: Verify Migration Version
+        run: go run main.go migrate version
+
+      - name: Test Migration Rollback (Down) & Re-Apply (Up)
+        run: |
+          echo "Rolling back 1 migration step..."
+          go run main.go migrate down
+          echo "Re-applying migration up..."
+          go run main.go migrate up
+
+      - name: Run Default Admin Seeder
+        run: go run main.go seed
+
+      - name: Test Seeder Idempotency (Second Run)
+        run: go run main.go seed
+
+      - name: Run Go Test Suite with Race Detector
+        run: go test -v -race ./...
+
+  build-check:
+    name: Go Binary Build Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Compile Go Binary
+        run: CGO_ENABLED=0 go build -v -ldflags="-w -s" -o /dev/null main.go
