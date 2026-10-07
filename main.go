@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"pkl-golang-be/internal/config"
+	"pkl-golang-be/internal/infra/bootstrap"
 	"pkl-golang-be/internal/infra/database"
 	"pkl-golang-be/internal/infra/migrate"
 	"pkl-golang-be/internal/infra/seeder"
 	"pkl-golang-be/internal/infra/server"
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/slices/auth"
+
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -32,6 +35,9 @@ func main() {
 	switch command {
 	case "serve":
 		runServer(cfg)
+
+	case "bootstrap":
+		runBootstrap(cfg)
 
 	case "seed":
 		runSeed(cfg, os.Args[2:])
@@ -56,23 +62,37 @@ func main() {
 }
 
 func runServer(cfg *config.Config) {
-	// Initialize Database
-	db, err := database.Connect(cfg)
-	if err != nil {
-		slog.Error("Failed to connect to database", "error", err)
-		os.Exit(1)
-	}
+	var db *gorm.DB
+	var s3Client *storage.S3Client
 
-	// Auto-seed Default Admin (if not present, respecting soft-deleted accounts)
-	if err := seeder.EnsureDefaultAdmin(db, cfg); err != nil {
-		slog.Error("Failed to ensure default admin user", "error", err)
-		os.Exit(1)
-	}
+	if cfg.AutoBootstrap {
+		bootResult, err := bootstrap.Run(context.Background(), cfg)
+		if err != nil {
+			slog.Error("Auto-bootstrap failed", "error", err)
+			os.Exit(1)
+		}
+		db = bootResult.DB
+		s3Client = bootResult.S3Client
+	} else {
+		// Initialize Database
+		var err error
+		db, err = database.Connect(cfg)
+		if err != nil {
+			slog.Error("Failed to connect to database", "error", err)
+			os.Exit(1)
+		}
 
-	// Initialize Storage Client (S3)
-	s3Client, err := storage.NewS3Client(cfg)
-	if err != nil {
-		slog.Warn("S3 storage client failed to initialize", "error", err)
+		// Auto-seed Default Admin (if not present, respecting soft-deleted accounts)
+		if err := seeder.EnsureDefaultAdmin(db, cfg); err != nil {
+			slog.Error("Failed to ensure default admin user", "error", err)
+			os.Exit(1)
+		}
+
+		// Initialize Storage Client (S3)
+		s3Client, err = storage.NewS3Client(cfg)
+		if err != nil {
+			slog.Warn("S3 storage client failed to initialize", "error", err)
+		}
 	}
 	_ = s3Client // will be passed to slices later
 
@@ -223,6 +243,15 @@ func runSeed(cfg *config.Config, args []string) {
 	slog.Info("Database seeder finished successfully")
 }
 
+func runBootstrap(cfg *config.Config) {
+	slog.Info("Running standalone environment bootstrap...")
+	if _, err := bootstrap.Run(context.Background(), cfg); err != nil {
+		slog.Error("Bootstrap execution failed", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("Bootstrap finished successfully!")
+}
+
 func printHelp() {
 	fmt.Println(`PKL Backend API v2 (Vertical Slice Architecture)
 
@@ -230,7 +259,8 @@ Usage:
   go run main.go [command]
 
 Available Commands:
-  serve                 Start the Fiber HTTP API server (default, auto-seeds default admin)
+  serve                 Start the Fiber HTTP API server (default, auto-bootstraps environment)
+  bootstrap             Run full environment bootstrap (probe DB, ensure DB, migrate, seed admin, check storage)
   seed [flags]          Seed default admin user (--restore to restore soft-deleted, --force to update password)
   migrate [action]      Run database migrations (up, down, fresh, drop, version, create)
   test-db               Test connection to PostgreSQL database
