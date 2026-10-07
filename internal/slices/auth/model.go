@@ -9,17 +9,17 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	RoleID       uuid.UUID      `gorm:"type:uuid;not null;index"`
-	DepartmentID *uuid.UUID     `gorm:"type:uuid;index"`
-	CompanyID    *uuid.UUID     `gorm:"type:uuid;index"`
-	Name         string         `gorm:"size:255;not null"`
-	Email        string         `gorm:"size:255;not null"`
-	Password     string         `gorm:"type:text;not null"`
-	AvatarURL    *string        `gorm:"type:text"`
-	Status       string         `gorm:"size:20;not null;default:'active'"`
-	CreatedBy    *uuid.UUID     `gorm:"type:uuid"`
-	UpdatedBy    *uuid.UUID     `gorm:"type:uuid"`
+	ID           uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	RoleID       uuid.UUID  `gorm:"type:uuid;not null;index"`
+	DepartmentID *uuid.UUID `gorm:"type:uuid;index"`
+	CompanyID    *uuid.UUID `gorm:"type:uuid;index"`
+	Name         string     `gorm:"size:255;not null"`
+	Email        string     `gorm:"size:255;not null"`
+	Password     string     `gorm:"type:text;not null"`
+	AvatarURL    *string    `gorm:"type:text"`
+	Status       string     `gorm:"size:20;not null;default:'active'"`
+	CreatedBy    *uuid.UUID `gorm:"type:uuid"`
+	UpdatedBy    *uuid.UUID `gorm:"type:uuid"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    gorm.DeletedAt `gorm:"index"`
@@ -36,14 +36,14 @@ type Role struct {
 }
 
 type Token struct {
-	ID        uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	UserID    uuid.UUID  `gorm:"type:uuid;not null;index"`
-	TokenHash string     `gorm:"type:char(64);not null;index"`
-	ExpiresAt time.Time  `gorm:"not null;index"`
-	Remember  bool       `gorm:"not null;default:false"`
-	UserAgent *string    `gorm:"type:text"`
-	IPAddress *string    `gorm:"size:45"`
-	CreatedAt time.Time  `gorm:"default:CURRENT_TIMESTAMP"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	UserID    uuid.UUID `gorm:"type:uuid;not null;index"`
+	TokenHash string    `gorm:"type:char(64);not null;index"`
+	ExpiresAt time.Time `gorm:"not null;index"`
+	Remember  bool      `gorm:"not null;default:false"`
+	UserAgent *string   `gorm:"type:text"`
+	IPAddress *string   `gorm:"size:45"`
+	CreatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP"`
 	RevokedAt *time.Time
 }
 

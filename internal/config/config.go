@@ -184,4 +184,3 @@ func (l *envLoader) getSafeBool(key string, defaultVal bool) bool {
 	}
 	return defaultVal
 }
-
