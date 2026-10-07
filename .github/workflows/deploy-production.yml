@@ -1,0 +1,139 @@
+name: Deploy — Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/senvada/pkl-golang-be
+
+concurrency:
+  group: deploy-production-be-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-main-tag:
+    name: Verify Tag on Main Branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Tag Belongs to Main Branch
+        run: |
+          echo "Fetching origin/main to ensure branch reference is up to date..."
+          git fetch origin main
+          echo "Verifying that tag ${{ github.ref_name }} is merged into origin/main..."
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "❌ ERROR: Tag ${{ github.ref_name }} is not on the main branch!"
+            echo "Release images can only be built from tags that originate from the main branch."
+            exit 1
+          fi
+          echo "✅ Tag ${{ github.ref_name }} is verified on the main branch."
+
+  ci:
+    name: CI Verification
+    needs: verify-main-tag
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build & Push Production Image
+    needs: [verify-main-tag, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+            type=sha,prefix=sha-
+            type=raw,value=${{ github.sha }}
+
+      - name: Build & Push Production Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## 🐳 Docker Image Production Ready
+            
+            Image backend PKL siap dijalankan langsung (*ready-to-run*):
+            
+            ```bash
+            # Pull image dari GHCR
+            docker pull ${{ env.IMAGE }}:${{ github.ref_name }}
+
+            # Jalankan container
+            docker run -d \
+              --name pkl-golang-be \
+              -p 3001:3000 \
+              --env-file .env \
+              --restart unless-stopped \
+              ${{ env.IMAGE }}:${{ github.ref_name }}
+            ```
+
+  deploy:
+    name: Deploy to Production Server
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+    steps:
+      - name: Connect Tailscale
+        if: ${{ secrets.TAILSCALE_AUTHKEY != '' }}
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Trigger Deploy via SEHooks
+        if: ${{ secrets.PRODUCTION_BE_WEBHOOK_URL != '' }}
+        run: |
+          curl -i --fail -sS -X POST "${{ secrets.PRODUCTION_BE_WEBHOOK_URL }}"

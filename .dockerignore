@@ -1,0 +1,12 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log
+tmp/
+bin/
+*.exe
+*.test
+api.http
+docker-compose*.yml
