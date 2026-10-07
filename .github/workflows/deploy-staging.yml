@@ -73,11 +73,6 @@ jobs:
     environment:
       name: staging
     steps:
-      - name: Connect Tailscale
-        uses: tailscale/github-action@v3
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-
       - name: Trigger Deploy via SEHooks
         run: |
           curl -i --fail -sS -X POST "http://${{ secrets.STAGING_HOST }}:3001/webhook/fce43e5f7e3abd9e51f6dbf930359fac1842fb8189eab372"
