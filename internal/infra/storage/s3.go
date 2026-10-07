@@ -116,3 +116,32 @@ func (s *S3Client) GetPublicURL(key string) string {
 	cleanKey := strings.TrimLeft(key, "/")
 	return fmt.Sprintf("%s/%s", s.publicPrefix, cleanKey)
 }
+
+// EnsureBucket verifies if the target bucket exists, and creates it if missing.
+func (s *S3Client) EnsureBucket(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err == nil {
+		slog.Debug("S3 storage bucket already exists", "bucket", s.bucket)
+		return nil
+	}
+
+	slog.Info("S3 storage bucket not found or unreachable, attempting to create...", "bucket", s.bucket)
+	_, createErr := s.client.CreateBucket(ctx, &s3.CreateBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if createErr != nil {
+		errStr := createErr.Error()
+		if strings.Contains(errStr, "BucketAlreadyOwnedByYou") ||
+			strings.Contains(errStr, "BucketAlreadyExists") ||
+			strings.Contains(errStr, "Conflict") {
+			slog.Debug("S3 storage bucket already exists (reported during creation)", "bucket", s.bucket)
+			return nil
+		}
+		return fmt.Errorf("failed to ensure S3 bucket '%s': %w", s.bucket, createErr)
+	}
+
+	slog.Info("✅ Successfully created S3 storage bucket", "bucket", s.bucket)
+	return nil
+}

@@ -47,6 +47,9 @@ type Config struct {
 	DefaultAdminName     string
 	DefaultAdminEmail    string
 	DefaultAdminPassword string
+
+	// Bootstrap
+	AutoBootstrap bool
 }
 
 func (c *Config) IsProduction() bool {
@@ -109,6 +112,9 @@ func LoadConfigFromLookup(lookup func(string) (string, bool)) (*Config, error) {
 		DefaultAdminName:     loader.getStrict("DEFAULT_ADMIN_NAME", "Administrator PKL"),
 		DefaultAdminEmail:    loader.getStrict("DEFAULT_ADMIN_EMAIL", "admin@smkn6malang.sch.id"),
 		DefaultAdminPassword: loader.getStrict("DEFAULT_ADMIN_PASSWORD", "PKL@2026"),
+
+		// Bootstrap
+		AutoBootstrap: loader.getSafeBool("AUTO_BOOTSTRAP", true),
 	}
 
 	if isProd {
@@ -126,6 +132,12 @@ func LoadConfigFromLookup(lookup func(string) (string, bool)) (*Config, error) {
 func (c *Config) PostgresDSN() string {
 	return fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
 		c.DBHost, c.DBUser, c.DBPassword, c.DBName, c.DBPort, c.DBSSLMode, c.DBTimeZone,
+	)
+}
+
+func (c *Config) PostgresMaintenanceDSN() string {
+	return fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%s sslmode=%s TimeZone=%s",
+		c.DBHost, c.DBUser, c.DBPassword, c.DBPort, c.DBSSLMode, c.DBTimeZone,
 	)
 }
 
