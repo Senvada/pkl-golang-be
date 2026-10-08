@@ -95,12 +95,12 @@ func LoadConfigFromLookup(lookup func(string) (string, bool)) (*Config, error) {
 		DBConnMaxLifetime: loader.getSafeInt("DB_CONN_MAX_LIFETIME", 300),
 
 		// Storage (Strict in production: endpoint, credentials, and bucket must be explicitly provided)
-		S3Endpoint:        loader.getStrict("S3_ENDPOINT", "http://127.0.0.1:54321/storage/v1/s3"),
+		S3Endpoint:        loader.getStrict("S3_ENDPOINT", "http://127.0.0.1:54321/s3"),
 		S3Region:          loader.getSafe("S3_REGION", "local"),
 		S3Bucket:          loader.getStrict("S3_BUCKET", "pkl-assets"),
 		S3AccessKey:       loader.getStrict("S3_ACCESS_KEY", "625729a08b95bf1b7ff351a663f3a23c"),
 		S3SecretKey:       loader.getStrict("S3_SECRET_KEY", "850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907"),
-		S3PublicURLPrefix: loader.getSafe("S3_PUBLIC_URL_PREFIX", "http://127.0.0.1:54321/storage/v1/object/public/pkl-assets"),
+		S3PublicURLPrefix: loader.getSafe("S3_PUBLIC_URL_PREFIX", "http://127.0.0.1:54321/object/public/pkl-assets"),
 		S3UsePathStyle:    loader.getSafeBool("S3_USE_PATH_STYLE", true),
 
 		// Auth

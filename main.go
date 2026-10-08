@@ -204,6 +204,12 @@ func runTestS3(cfg *config.Config) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if err := s3Client.EnsureBucket(ctx); err != nil {
+		slog.Error("❌ S3 EnsureBucket failed", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("✅ S3 EnsureBucket verified successfully!")
+
 	testKey := fmt.Sprintf("test/probe_%d.txt", time.Now().Unix())
 	url, err := s3Client.PresignPutObject(ctx, testKey, "text/plain", 10, 5*time.Minute)
 	if err != nil {
