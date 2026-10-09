@@ -70,10 +70,12 @@ func (s *S3Client) Bucket() string {
 
 func (s *S3Client) PresignPutObject(ctx context.Context, key, contentType string, contentLength int64, lifetime time.Duration) (string, error) {
 	input := &s3.PutObjectInput{
-		Bucket:        aws.String(s.bucket),
-		Key:           aws.String(key),
-		ContentType:   aws.String(contentType),
-		ContentLength: aws.Int64(contentLength),
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+	}
+	if contentLength > 0 {
+		input.ContentLength = aws.Int64(contentLength)
 	}
 
 	req, err := s.presignClient.PresignPutObject(ctx, input, s3.WithPresignExpires(lifetime))

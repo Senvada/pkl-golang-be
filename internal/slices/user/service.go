@@ -176,8 +176,8 @@ func (s *service) GenerateAvatarPresignedURL(ctx context.Context, userID uuid.UU
 	// Key format: avatars/{userID}/{timestamp}_{random}.{ext}
 	key := fmt.Sprintf("avatars/%s/%d_%s%s", userID.String(), time.Now().Unix(), uuid.New().String()[:8], ext)
 
-	// Presign PUT URL with 5-minute lifetime
-	uploadURL, err := s.s3Client.PresignPutObject(ctx, key, req.ContentType, req.FileSize, 5*time.Minute)
+	// Presign PUT URL with 5-minute lifetime (contentLength 0 so client length is flexible)
+	uploadURL, err := s.s3Client.PresignPutObject(ctx, key, req.ContentType, 0, 5*time.Minute)
 	if err != nil {
 		return nil, apperror.Internal("Gagal membuat presigned upload URL", err)
 	}
