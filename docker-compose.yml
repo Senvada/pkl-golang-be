@@ -26,6 +26,37 @@ services:
     environment:
       PORT: 5000
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@pkl-db:5432/${POSTGRES_DB}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        node -e '
+        const fs = require("fs");
+        try {
+          let code = fs.readFileSync("/app/dist/app.js", "utf8");
+          const target = "done(null);\n  });";
+          if (!code.includes("Access-Control-Allow-Origin")) {
+            const hook = `done(null);
+          });
+          app.addHook("onRequest", async (request, reply) => {
+            const origin = request.headers.origin || "*";
+            reply.header("Access-Control-Allow-Origin", origin);
+            reply.header("Access-Control-Allow-Methods", "GET, HEAD, PUT, POST, DELETE, PATCH, OPTIONS");
+            reply.header("Access-Control-Allow-Headers", "*");
+            reply.header("Access-Control-Expose-Headers", "*");
+            reply.header("Access-Control-Allow-Credentials", "true");
+            if (request.method === "OPTIONS") {
+              return reply.status(204).send();
+            }
+          });`;
+            fs.writeFileSync("/app/dist/app.js", code.replace(target, hook));
+            console.log("✅ [Storage] Injected CORS preflight & headers into Fastify app");
+          }
+        } catch (e) {
+          console.error("⚠️ [Storage] Could not inject CORS:", e);
+        }
+        '
+        exec node dist/start/server.js
     volumes:
       - pkl_storage_data:/var/lib/storage
     depends_on:
