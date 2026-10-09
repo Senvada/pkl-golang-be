@@ -25,7 +25,7 @@ type S3Client struct {
 func NewS3Client(cfg *config.Config) (*S3Client, error) {
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
 		return aws.Endpoint{
-			URL:               cfg.S3Endpoint,
+			URL:               cfg.S3PublicEndpoint,
 			HostnameImmutable: true,
 			SigningRegion:     cfg.S3Region,
 		}, nil
@@ -70,10 +70,12 @@ func (s *S3Client) Bucket() string {
 
 func (s *S3Client) PresignPutObject(ctx context.Context, key, contentType string, contentLength int64, lifetime time.Duration) (string, error) {
 	input := &s3.PutObjectInput{
-		Bucket:        aws.String(s.bucket),
-		Key:           aws.String(key),
-		ContentType:   aws.String(contentType),
-		ContentLength: aws.Int64(contentLength),
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+	}
+	if contentLength > 0 {
+		input.ContentLength = aws.Int64(contentLength)
 	}
 
 	req, err := s.presignClient.PresignPutObject(ctx, input, s3.WithPresignExpires(lifetime))
@@ -144,4 +146,26 @@ func (s *S3Client) EnsureBucket(ctx context.Context) error {
 
 	slog.Info("✅ Successfully created S3 storage bucket", "bucket", s.bucket)
 	return nil
+}
+
+// ExtractKeyFromPublicURL extracts the object key from a full public URL if it belongs to this S3 bucket.
+func (s *S3Client) ExtractKeyFromPublicURL(publicURL string) (string, bool) {
+	if s.publicPrefix == "" || !strings.HasPrefix(publicURL, s.publicPrefix) {
+		return "", false
+	}
+	key := strings.TrimPrefix(publicURL, s.publicPrefix)
+	key = strings.TrimLeft(key, "/")
+	if key == "" {
+		return "", false
+	}
+	return key, true
+}
+
+// DeleteObjectByURL deletes an object using its full public URL if it belongs to this storage prefix.
+func (s *S3Client) DeleteObjectByURL(ctx context.Context, publicURL string) error {
+	key, ok := s.ExtractKeyFromPublicURL(publicURL)
+	if !ok {
+		return nil
+	}
+	return s.DeleteObject(ctx, key)
 }

@@ -16,6 +16,7 @@ import (
 	"pkl-golang-be/internal/infra/server"
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/slices/auth"
+	"pkl-golang-be/internal/slices/user"
 
 	"gorm.io/gorm"
 )
@@ -106,6 +107,16 @@ func runServer(cfg *config.Config) {
 	authService := auth.NewService(db, cfg)
 	authHandler := auth.NewHandler(authService, cfg)
 	auth.RegisterRoutes(apiV1, authHandler, cfg)
+
+	// Slices: User
+	userService := user.NewService(db, cfg, s3Client)
+	userHandler := user.NewHandler(userService, cfg)
+	user.RegisterRoutes(apiV1, userHandler, cfg)
+
+	// API compatibility router for clients connecting via /api
+	apiLegacy := srv.App.Group("/api")
+	auth.RegisterRoutes(apiLegacy, authHandler, cfg)
+	user.RegisterRoutes(apiLegacy, userHandler, cfg)
 
 	if err := srv.Run(); err != nil {
 		slog.Error("Server terminated unexpectedly", "error", err)
