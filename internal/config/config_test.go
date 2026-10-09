@@ -175,4 +175,3 @@ func TestLoadConfig_Production_CustomS3PublicEndpoint(t *testing.T) {
 		t.Errorf("Expected S3PublicEndpoint 'https://pkl.smkn6malang.sch.id/storage/v1/s3', got '%s'", cfg.S3PublicEndpoint)
 	}
 }
-
