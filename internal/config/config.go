@@ -31,6 +31,7 @@ type Config struct {
 
 	// Storage (S3 / Supabase Storage)
 	S3Endpoint        string
+	S3PublicEndpoint  string
 	S3Region          string
 	S3Bucket          string
 	S3AccessKey       string
@@ -96,6 +97,7 @@ func LoadConfigFromLookup(lookup func(string) (string, bool)) (*Config, error) {
 
 		// Storage (Strict in production: endpoint, credentials, and bucket must be explicitly provided)
 		S3Endpoint:        loader.getStrict("S3_ENDPOINT", "http://127.0.0.1:54321/s3"),
+		S3PublicEndpoint:  loader.getStrict("S3_PUBLIC_ENDPOINT", "http://127.0.0.1:54321/s3"),
 		S3Region:          loader.getSafe("S3_REGION", "local"),
 		S3Bucket:          loader.getStrict("S3_BUCKET", "pkl-assets"),
 		S3AccessKey:       loader.getStrict("S3_ACCESS_KEY", "625729a08b95bf1b7ff351a663f3a23c"),

@@ -25,7 +25,7 @@ type S3Client struct {
 func NewS3Client(cfg *config.Config) (*S3Client, error) {
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
 		return aws.Endpoint{
-			URL:               cfg.S3Endpoint,
+			URL:               cfg.S3PublicEndpoint,
 			HostnameImmutable: true,
 			SigningRegion:     cfg.S3Region,
 		}, nil
@@ -169,4 +169,3 @@ func (s *S3Client) DeleteObjectByURL(ctx context.Context, publicURL string) erro
 	}
 	return s.DeleteObject(ctx, key)
 }
-
