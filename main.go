@@ -124,7 +124,6 @@ func runServer(cfg *config.Config) {
 	}
 }
 
-
 func runMigrate(cfg *config.Config, args []string) {
 	if len(args) == 0 {
 		printMigrateHelp()
