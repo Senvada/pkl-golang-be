@@ -124,24 +124,31 @@ func WaitForTCP(ctx context.Context, host, port string, timeout time.Duration) e
 }
 
 // EnsureDatabaseExists connects to the maintenance DB ("postgres") to check if DB_NAME exists,
-// creating it if missing, and auto-registers the storage bucket if Supabase schema is present.
+// creating it if missing, auto-configures supabase_storage_admin least-privileged role,
+// and auto-registers the storage bucket if Supabase schema is present.
 func EnsureDatabaseExists(ctx context.Context, cfg *config.Config) error {
-	if strings.EqualFold(cfg.DBName, "postgres") {
-		slog.Debug("[Bootstrap] Application uses 'postgres' database, skipping creation check")
-		return nil
-	}
-
 	if !IsValidDBName(cfg.DBName) {
 		return fmt.Errorf("database name '%s' contains invalid characters; only letters, numbers, and underscores are allowed", cfg.DBName)
 	}
 
-	// Connect to default maintenance database
+	// Connect to default maintenance database ("postgres").
+	// In Supabase, 'supabase_admin' is the superuser with permission to modify reserved roles.
+	// Fall back to cfg.DBUser for standard PostgreSQL environments.
 	maintDSN := cfg.PostgresMaintenanceDSN()
-	maintDB, err := gorm.Open(postgres.Open(maintDSN), &gorm.Config{
+	adminDSN := fmt.Sprintf("host=%s user=supabase_admin password=%s dbname=postgres port=%s sslmode=%s TimeZone=%s",
+		cfg.DBHost, cfg.DBPassword, cfg.DBPort, cfg.DBSSLMode, cfg.DBTimeZone,
+	)
+
+	maintDB, err := gorm.Open(postgres.Open(adminDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to connect to PostgreSQL maintenance database ('postgres'): %w", err)
+		maintDB, err = gorm.Open(postgres.Open(maintDSN), &gorm.Config{
+			Logger: logger.Default.LogMode(logger.Silent),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to connect to PostgreSQL maintenance database ('postgres'): %w", err)
+		}
 	}
 
 	sqlDB, err := maintDB.DB()
@@ -150,25 +157,30 @@ func EnsureDatabaseExists(ctx context.Context, cfg *config.Config) error {
 	}
 	defer sqlDB.Close()
 
-	// 1. Check if database exists
-	var exists int
-	query := "SELECT 1 FROM pg_database WHERE datname = ?"
-	if err := maintDB.WithContext(ctx).Raw(query, cfg.DBName).Scan(&exists).Error; err != nil {
-		return fmt.Errorf("failed to query pg_database: %w", err)
-	}
-
-	if exists != 1 {
-		slog.Info("✨ [Bootstrap] Database does not exist yet. Creating...", "database", cfg.DBName)
-		createStmt := fmt.Sprintf(`CREATE DATABASE "%s"`, cfg.DBName)
-		if err := maintDB.WithContext(ctx).Exec(createStmt).Error; err != nil {
-			return fmt.Errorf("failed to create database '%s': %w", cfg.DBName, err)
+	// 1. Check if application database exists (skip if app uses 'postgres')
+	if !strings.EqualFold(cfg.DBName, "postgres") {
+		var exists int
+		query := "SELECT 1 FROM pg_database WHERE datname = ?"
+		if err := maintDB.WithContext(ctx).Raw(query, cfg.DBName).Scan(&exists).Error; err != nil {
+			return fmt.Errorf("failed to query pg_database: %w", err)
 		}
-		slog.Info("✅ [Bootstrap] Database created successfully", "database", cfg.DBName)
-	} else {
-		slog.Info("✅ [Bootstrap] Database already exists", "database", cfg.DBName)
+
+		if exists != 1 {
+			slog.Info("✨ [Bootstrap] Database does not exist yet. Creating...", "database", cfg.DBName)
+			createStmt := fmt.Sprintf(`CREATE DATABASE "%s"`, cfg.DBName)
+			if err := maintDB.WithContext(ctx).Exec(createStmt).Error; err != nil {
+				return fmt.Errorf("failed to create database '%s': %w", cfg.DBName, err)
+			}
+			slog.Info("✅ [Bootstrap] Database created successfully", "database", cfg.DBName)
+		} else {
+			slog.Info("✅ [Bootstrap] Database already exists", "database", cfg.DBName)
+		}
 	}
 
-	// 2. If Supabase storage is installed in postgres database, ensure the bucket entry
+	// 2. Automatically ensure supabase_storage_admin role, password, and schema permissions (Least Privilege)
+	EnsureStorageRoleAndPermissions(ctx, maintDB, cfg.DBPassword)
+
+	// 3. If Supabase storage is installed in postgres database, ensure the bucket entry
 	var storageTableExists int
 	checkStorageTable := "SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'buckets'"
 	_ = maintDB.WithContext(ctx).Raw(checkStorageTable).Scan(&storageTableExists).Error
@@ -184,6 +196,50 @@ func EnsureDatabaseExists(ctx context.Context, cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+// EnsureStorageRoleAndPermissions auto-configures the supabase_storage_admin role and
+// ensures proper ownership on the storage schema without needing manual ALTER commands.
+func EnsureStorageRoleAndPermissions(ctx context.Context, maintDB *gorm.DB, password string) {
+	escapedPassword := strings.ReplaceAll(password, "'", "''")
+	ensureRoleSQL := fmt.Sprintf(`
+	DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_storage_admin') THEN
+			EXECUTE 'ALTER ROLE supabase_storage_admin WITH LOGIN PASSWORD ' || quote_literal('%s');
+		END IF;
+		CREATE SCHEMA IF NOT EXISTS storage;
+		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_storage_admin') THEN
+			ALTER SCHEMA storage OWNER TO supabase_storage_admin;
+			GRANT ALL ON SCHEMA storage TO supabase_storage_admin;
+		END IF;
+	END $$;
+	`, escapedPassword)
+
+	if err := maintDB.WithContext(ctx).Exec(ensureRoleSQL).Error; err != nil {
+		slog.Debug("[Bootstrap] Storage role auto-configuration skipped or not applicable", "error", err)
+		return
+	}
+
+	ensureTablesSQL := `
+	DO $$
+	DECLARE
+		r RECORD;
+	BEGIN
+		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_storage_admin') THEN
+			FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'storage') LOOP
+				EXECUTE 'ALTER TABLE storage.' || quote_ident(r.tablename) || ' OWNER TO supabase_storage_admin';
+			END LOOP;
+			FOR r IN (SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'storage') LOOP
+				EXECUTE 'ALTER SEQUENCE storage.' || quote_ident(r.sequence_name) || ' OWNER TO supabase_storage_admin';
+			END LOOP;
+			EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO supabase_storage_admin';
+			EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO supabase_storage_admin';
+		END IF;
+	END $$;
+	`
+	_ = maintDB.WithContext(ctx).Exec(ensureTablesSQL).Error
+	slog.Info("🛡️ [Bootstrap] Verified least-privileged 'supabase_storage_admin' role and storage permissions")
 }
 
 // IsValidDBName validates that the database name has only safe alphanumeric and underscore characters.
