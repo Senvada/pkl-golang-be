@@ -13,6 +13,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3Client struct {
@@ -132,6 +133,7 @@ func (s *S3Client) EnsureBucket(ctx context.Context) error {
 	slog.Info("S3 storage bucket not found or unreachable, attempting to create...", "bucket", s.bucket)
 	_, createErr := s.client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String(s.bucket),
+		ACL:    types.BucketCannedACLPublicRead,
 	})
 	if createErr != nil {
 		errStr := createErr.Error()
