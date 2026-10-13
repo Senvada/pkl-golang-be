@@ -151,7 +151,7 @@ func TestLoadConfig_Production_CustomS3PublicEndpoint(t *testing.T) {
 		"DB_PASSWORD":            "P@ssw0rdProdSecure!",
 		"DB_NAME":                "pkl_production",
 		"S3_ENDPOINT":            "http://pkl-storage:5000/s3",
-		"S3_PUBLIC_ENDPOINT":     "https://pkl.smkn6malang.sch.id/storage/v1/s3",
+		"S3_PUBLIC_ENDPOINT":     "https://pkl.smkn6malang.sch.id/s3",
 		"S3_BUCKET":              "pkl-production-bucket",
 		"S3_ACCESS_KEY":          "PROD_ACCESS_KEY_XYZ",
 		"S3_SECRET_KEY":          "PROD_SECRET_KEY_XYZ12345",
@@ -171,7 +171,7 @@ func TestLoadConfig_Production_CustomS3PublicEndpoint(t *testing.T) {
 		t.Fatalf("Expected LoadConfig to succeed, got error: %v", err)
 	}
 
-	if cfg.S3PublicEndpoint != "https://pkl.smkn6malang.sch.id/storage/v1/s3" {
-		t.Errorf("Expected S3PublicEndpoint 'https://pkl.smkn6malang.sch.id/storage/v1/s3', got '%s'", cfg.S3PublicEndpoint)
+	if cfg.S3PublicEndpoint != "https://pkl.smkn6malang.sch.id/s3" {
+		t.Errorf("Expected S3PublicEndpoint 'https://pkl.smkn6malang.sch.id/s3', got '%s'", cfg.S3PublicEndpoint)
 	}
 }

@@ -150,15 +150,25 @@ func (s *S3Client) EnsureBucket(ctx context.Context) error {
 
 // ExtractKeyFromPublicURL extracts the object key from a full public URL if it belongs to this S3 bucket.
 func (s *S3Client) ExtractKeyFromPublicURL(publicURL string) (string, bool) {
-	if s.publicPrefix == "" || !strings.HasPrefix(publicURL, s.publicPrefix) {
-		return "", false
+	if s.publicPrefix != "" && strings.HasPrefix(publicURL, s.publicPrefix) {
+		key := strings.TrimPrefix(publicURL, s.publicPrefix)
+		key = strings.TrimLeft(key, "/")
+		if key != "" {
+			return key, true
+		}
 	}
-	key := strings.TrimPrefix(publicURL, s.publicPrefix)
-	key = strings.TrimLeft(key, "/")
-	if key == "" {
-		return "", false
+
+	// Fallback untuk URL warisan (misal mengandung /<bucket>/...)
+	bucketMarker := "/" + s.bucket + "/"
+	if idx := strings.Index(publicURL, bucketMarker); idx != -1 {
+		key := publicURL[idx+len(bucketMarker):]
+		key = strings.TrimLeft(key, "/")
+		if key != "" {
+			return key, true
+		}
 	}
-	return key, true
+
+	return "", false
 }
 
 // DeleteObjectByURL deletes an object using its full public URL if it belongs to this storage prefix.
