@@ -26,8 +26,10 @@ DB_EXISTS=$(docker exec -i "$DB_CONTAINER" psql -U postgres -tAc "SELECT 1 FROM 
 if [ "$DB_EXISTS" != "1" ]; then
     echo "✨ Membuat database pkl_development..."
     docker exec -i "$DB_CONTAINER" psql -U postgres -c "CREATE DATABASE \"pkl_development\";"
+    docker exec -i "$DB_CONTAINER" psql -U postgres -d "pkl_development" -c "GRANT ALL ON SCHEMA public TO postgres;" 2>/dev/null || true
 else
     echo "✅ Database pkl_development sudah ada."
+    docker exec -i "$DB_CONTAINER" psql -U postgres -d "pkl_development" -c "GRANT ALL ON SCHEMA public TO postgres;" 2>/dev/null || true
 fi
 
 # 2. Pastikan bucket pkl-assets ada di Supabase Storage
