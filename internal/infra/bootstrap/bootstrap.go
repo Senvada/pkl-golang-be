@@ -167,20 +167,35 @@ func EnsureDatabaseExists(ctx context.Context, cfg *config.Config) error {
 
 		if exists != 1 {
 			slog.Info("✨ [Bootstrap] Database does not exist yet. Creating...", "database", cfg.DBName)
-			createStmt := fmt.Sprintf(`CREATE DATABASE "%s"`, cfg.DBName)
+			createStmt := fmt.Sprintf(`CREATE DATABASE "%s" OWNER "%s"`, cfg.DBName, cfg.DBUser)
 			if err := maintDB.WithContext(ctx).Exec(createStmt).Error; err != nil {
-				return fmt.Errorf("failed to create database '%s': %w", cfg.DBName, err)
+				// Fallback without OWNER if role does not exist or owner cannot be set during creation
+				createStmt = fmt.Sprintf(`CREATE DATABASE "%s"`, cfg.DBName)
+				if err := maintDB.WithContext(ctx).Exec(createStmt).Error; err != nil {
+					return fmt.Errorf("failed to create database '%s': %w", cfg.DBName, err)
+				}
 			}
 			slog.Info("✅ [Bootstrap] Database created successfully", "database", cfg.DBName)
 		} else {
 			slog.Info("✅ [Bootstrap] Database already exists", "database", cfg.DBName)
 		}
+
+		// Ensure application database owner and database-level privileges
+		alterOwnerStmt := fmt.Sprintf(`ALTER DATABASE "%s" OWNER TO "%s"`, cfg.DBName, cfg.DBUser)
+		if err := maintDB.WithContext(ctx).Exec(alterOwnerStmt).Error; err != nil {
+			slog.Debug("[Bootstrap] ALTER DATABASE OWNER skipped or not permitted", "error", err)
+		}
+		grantDbStmt := fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE "%s" TO "%s"`, cfg.DBName, cfg.DBUser)
+		_ = maintDB.WithContext(ctx).Exec(grantDbStmt).Error
 	}
 
-	// 2. Automatically ensure supabase_storage_admin role, password, and schema permissions (Least Privilege)
+	// 2. Automatically ensure schema 'public' permissions for DBUser (Postgres 15+ security model)
+	EnsureAppDBSchemaPermissions(ctx, cfg)
+
+	// 3. Automatically ensure supabase_storage_admin role, password, and schema permissions (Least Privilege)
 	EnsureStorageRoleAndPermissions(ctx, maintDB, cfg.DBPassword)
 
-	// 3. If Supabase storage is installed in postgres database, ensure the bucket entry
+	// 4. If Supabase storage is installed in postgres database, ensure the bucket entry
 	var storageTableExists int
 	checkStorageTable := "SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'buckets'"
 	_ = maintDB.WithContext(ctx).Raw(checkStorageTable).Scan(&storageTableExists).Error
@@ -198,6 +213,55 @@ func EnsureDatabaseExists(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
+// EnsureAppDBSchemaPermissions auto-configures schema 'public' ownership and privileges
+// for cfg.DBUser inside cfg.DBName (essential for PostgreSQL 15+ where public CREATE is revoked by default).
+func EnsureAppDBSchemaPermissions(ctx context.Context, cfg *config.Config) {
+	// In Supabase, connect as superuser 'supabase_admin' to grant schema ownership/privileges.
+	// Fall back to standard application DSN.
+	adminDSN := fmt.Sprintf("host=%s user=supabase_admin password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
+		cfg.DBHost, cfg.DBPassword, cfg.DBName, cfg.DBPort, cfg.DBSSLMode, cfg.DBTimeZone,
+	)
+	appDB, err := gorm.Open(postgres.Open(adminDSN), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		appDB, err = gorm.Open(postgres.Open(cfg.PostgresDSN()), &gorm.Config{
+			Logger: logger.Default.LogMode(logger.Silent),
+		})
+		if err != nil {
+			slog.Debug("[Bootstrap] Application DB connection for schema permissions skipped", "error", err)
+			return
+		}
+	}
+
+	sqlDB, err := appDB.DB()
+	if err == nil {
+		defer sqlDB.Close()
+	}
+
+	escapedUser := strings.ReplaceAll(cfg.DBUser, "'", "''")
+	grantSchemaSQL := fmt.Sprintf(`
+	DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN
+			CREATE SCHEMA IF NOT EXISTS public;
+			EXECUTE 'ALTER SCHEMA public OWNER TO ' || quote_ident('%s');
+			EXECUTE 'GRANT ALL ON SCHEMA public TO ' || quote_ident('%s');
+			EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ' || quote_ident('%s');
+			EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ' || quote_ident('%s');
+			EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ' || quote_ident('%s');
+			EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ' || quote_ident('%s');
+		END IF;
+	END $$;
+	`, escapedUser, escapedUser, escapedUser, escapedUser, escapedUser, escapedUser, escapedUser)
+
+	if err := appDB.WithContext(ctx).Exec(grantSchemaSQL).Error; err != nil {
+		slog.Debug("[Bootstrap] Schema public permission assignment skipped or returned notice", "error", err)
+	} else {
+		slog.Info("🛡️ [Bootstrap] Verified schema 'public' permissions for database user", "user", cfg.DBUser, "database", cfg.DBName)
+	}
+}
+
 // EnsureStorageRoleAndPermissions auto-configures the supabase_storage_admin role and
 // ensures proper ownership on the storage schema without needing manual ALTER commands.
 func EnsureStorageRoleAndPermissions(ctx context.Context, maintDB *gorm.DB, password string) {
@@ -212,6 +276,9 @@ func EnsureStorageRoleAndPermissions(ctx context.Context, maintDB *gorm.DB, pass
 		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_storage_admin') THEN
 			ALTER SCHEMA storage OWNER TO supabase_storage_admin;
 			GRANT ALL ON SCHEMA storage TO supabase_storage_admin;
+		END IF;
+		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+			GRANT ALL ON SCHEMA storage TO postgres;
 		END IF;
 	END $$;
 	`, escapedPassword)
@@ -235,6 +302,14 @@ func EnsureStorageRoleAndPermissions(ctx context.Context, maintDB *gorm.DB, pass
 			END LOOP;
 			EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO supabase_storage_admin';
 			EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO supabase_storage_admin';
+			EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO supabase_storage_admin';
+			EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON SEQUENCES TO supabase_storage_admin';
+		END IF;
+		IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+			EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO postgres';
+			EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO postgres';
+			EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO postgres';
+			EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON SEQUENCES TO postgres';
 		END IF;
 	END $$;
 	`
