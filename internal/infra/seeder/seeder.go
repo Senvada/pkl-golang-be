@@ -22,7 +22,59 @@ type Options struct {
 // It uses an Unscoped query to check both active and soft-deleted records.
 // If the record exists (active or deleted), it will NOT re-seed to prevent repeated seeding of deleted accounts.
 func EnsureDefaultAdmin(db *gorm.DB, cfg *config.Config) error {
+	if err := EnsureDefaultRolesAndDepartments(db); err != nil {
+		slog.Warn("Failed to ensure default roles and departments", "error", err)
+	}
 	return SeedDefaultAdmin(db, cfg, Options{})
+}
+
+// EnsureDefaultRolesAndDepartments seeds initial roles and departments if not yet created.
+func EnsureDefaultRolesAndDepartments(db *gorm.DB) error {
+	type defaultRole struct {
+		Name  string
+		Color string
+		Perm  string
+	}
+
+	roles := []defaultRole{
+		{Name: "Admin", Color: "#EF4444", Perm: `{"admin": true}`},
+		{Name: "Industri", Color: "#8B5CF6", Perm: `{"company": {"read": true, "update": true}, "users": {"read": true, "create": true, "update": true}, "article": {"read": true, "create": true, "update": true}}`},
+		{Name: "Guru", Color: "#10B981", Perm: `{"users": {"read": true}, "company": {"read": true}, "article": {"read": true}}`},
+		{Name: "Pembimbing", Color: "#F59E0B", Perm: `{"users": {"read": true}, "company": {"read": true}, "article": {"read": true}}`},
+		{Name: "Siswa", Color: "#06B6D4", Perm: `{"article": {"read": true, "create": true, "update": true}, "company": {"read": true}}`},
+	}
+
+	for _, r := range roles {
+		var count int64
+		if err := db.Table("roles").Where("name = ? AND deleted_at IS NULL", r.Name).Count(&count).Error; err == nil && count == 0 {
+			_ = db.Exec("INSERT INTO roles (id, name, color, permissions, created_at, updated_at) VALUES (gen_random_uuid(), ?, ?, ?::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+				r.Name, r.Color, r.Perm).Error
+		}
+	}
+
+	type defaultDept struct {
+		Name  string
+		Code  string
+		Color string
+	}
+
+	depts := []defaultDept{
+		{Name: "Rekayasa Perangkat Lunak", Code: "RPL", Color: "#3B82F6"},
+		{Name: "Teknik Komputer dan Jaringan", Code: "TKJ", Color: "#10B981"},
+		{Name: "Sistem Informasi, Jaringan, dan Aplikasi", Code: "SIJA", Color: "#6366F1"},
+		{Name: "Desain Komunikasi Visual", Code: "DKV", Color: "#F59E0B"},
+		{Name: "Desain Pemodelan dan Informasi Bangunan", Code: "DPIB", Color: "#EC4899"},
+	}
+
+	for _, d := range depts {
+		var count int64
+		if err := db.Table("departments").Where("code = ? AND deleted_at IS NULL", d.Code).Count(&count).Error; err == nil && count == 0 {
+			_ = db.Exec("INSERT INTO departments (id, name, code, color, created_at, updated_at) VALUES (gen_random_uuid(), ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+				d.Name, d.Code, d.Color).Error
+		}
+	}
+
+	return nil
 }
 
 // SeedDefaultAdmin seeds the default admin user with configurable options.

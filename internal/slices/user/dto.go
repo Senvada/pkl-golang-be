@@ -1,6 +1,8 @@
 package user
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -28,28 +30,99 @@ type ChangePasswordRequest struct {
 }
 
 type RoleDTO struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
-}
-
-type DepartmentDTO struct {
 	ID    uuid.UUID `json:"id"`
 	Name  string    `json:"name"`
 	Color string    `json:"color"`
 }
 
+type DepartmentDTO struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Code  string    `json:"code"`
+	Color string    `json:"color"`
+}
+
+type CompanyDTO struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	Slug string    `json:"slug"`
+}
+
 type UserProfileResponse struct {
-	ID           uuid.UUID      `json:"id"`
-	Name         string         `json:"name"`
-	Email        string         `json:"email"`
-	AvatarURL    *string        `json:"avatar_url"`
-	Image        *string        `json:"image"` // Alias for frontend backward compatibility
-	Status       string         `json:"status"`
-	RoleID       uuid.UUID      `json:"role_id"`
-	RoleName     string         `json:"role_name"`
-	Role         *RoleDTO       `json:"role,omitempty"`
-	DepartmentID *uuid.UUID     `json:"department_id,omitempty"`
-	Department   *DepartmentDTO `json:"department,omitempty"`
-	CompanyID    *uuid.UUID     `json:"company_id,omitempty"`
-	GoogleBound  bool           `json:"google_bound"`
+	ID             uuid.UUID      `json:"id"`
+	Name           string         `json:"name"`
+	Email          string         `json:"email"`
+	AvatarURL      *string        `json:"avatar_url"`
+	Image          *string        `json:"image"` // Alias for frontend backward compatibility
+	Status         string         `json:"status"`
+	RoleID         uuid.UUID      `json:"role_id"`
+	RoleName       string         `json:"role_name"`
+	Role           *RoleDTO       `json:"role,omitempty"`
+	DepartmentID   *uuid.UUID     `json:"department_id,omitempty"`
+	DepartmentName *string        `json:"department_name,omitempty"`
+	Department     *DepartmentDTO `json:"department,omitempty"`
+	CompanyID      *uuid.UUID     `json:"company_id,omitempty"`
+	CompanyName    *string        `json:"company_name,omitempty"`
+	Company        *CompanyDTO    `json:"company,omitempty"`
+	ParentID       *uuid.UUID     `json:"parent_id,omitempty"`
+	ParentName     *string        `json:"parent_name,omitempty"`
+	GoogleBound    bool           `json:"google_bound"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
+type CreateUserRequest struct {
+	Name         string     `json:"name" validate:"required,min=2,max=255"`
+	Email        string     `json:"email" validate:"required,email"`
+	Password     string     `json:"password" validate:"required,min=6"`
+	RoleID       uuid.UUID  `json:"role_id" validate:"required"`
+	DepartmentID *uuid.UUID `json:"department_id" validate:"omitempty"`
+	CompanyID    *uuid.UUID `json:"company_id" validate:"omitempty"`
+	ParentID     *uuid.UUID `json:"parent_id" validate:"omitempty"`
+	Status       string     `json:"status" validate:"omitempty,oneof=active waiting inactive banned"`
+}
+
+type UpdateUserRequest struct {
+	Name         *string    `json:"name" validate:"omitempty,min=2,max=255"`
+	Email        *string    `json:"email" validate:"omitempty,email"`
+	Password     *string    `json:"password" validate:"omitempty,min=6"`
+	RoleID       *uuid.UUID `json:"role_id" validate:"omitempty"`
+	DepartmentID *uuid.UUID `json:"department_id" validate:"omitempty"`
+	CompanyID    *uuid.UUID `json:"company_id" validate:"omitempty"`
+	ParentID     *uuid.UUID `json:"parent_id" validate:"omitempty"`
+	Status       *string    `json:"status" validate:"omitempty,oneof=active waiting inactive banned"`
+	AvatarURL    *string    `json:"avatar_url" validate:"omitempty"`
+}
+
+type UserFilterQuery struct {
+	Search       string     `query:"search"`
+	RoleID       *uuid.UUID `query:"role_id"`
+	DepartmentID *uuid.UUID `query:"department_id"`
+	CompanyID    *uuid.UUID `query:"company_id"`
+	ParentID     *uuid.UUID `query:"parent_id"`
+	Status       string     `query:"status"`
+}
+
+type UserItemResponse struct {
+	ID             uuid.UUID      `json:"id"`
+	Name           string         `json:"name"`
+	Email          string         `json:"email"`
+	AvatarURL      *string        `json:"avatar_url"`
+	Image          *string        `json:"image"`
+	Status         string         `json:"status"`
+	RoleID         uuid.UUID      `json:"role_id"`
+	RoleName       string         `json:"role_name"`
+	Role           *RoleDTO       `json:"role,omitempty"`
+	DepartmentID   *uuid.UUID     `json:"department_id,omitempty"`
+	DepartmentName *string        `json:"department_name,omitempty"`
+	Department     *DepartmentDTO `json:"department,omitempty"`
+	CompanyID      *uuid.UUID     `json:"company_id,omitempty"`
+	CompanyName    *string        `json:"company_name,omitempty"`
+	Company        *CompanyDTO    `json:"company,omitempty"`
+	ParentID       *uuid.UUID     `json:"parent_id,omitempty"`
+	ParentName     *string        `json:"parent_name,omitempty"`
+	SubUserCount   int64          `json:"sub_user_count"`
+	GoogleBound    bool           `json:"google_bound"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
