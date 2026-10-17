@@ -15,6 +15,7 @@ import (
 	"pkl-golang-be/internal/infra/seeder"
 	"pkl-golang-be/internal/infra/server"
 	"pkl-golang-be/internal/infra/storage"
+	"pkl-golang-be/internal/slices/asset"
 	"pkl-golang-be/internal/slices/auth"
 	"pkl-golang-be/internal/slices/company"
 	"pkl-golang-be/internal/slices/department"
@@ -131,6 +132,11 @@ func runServer(cfg *config.Config) {
 	companyHandler := company.NewHandler(companyService, cfg)
 	company.RegisterRoutes(apiV1, companyHandler, cfg)
 
+	// Slices: Asset
+	assetService := asset.NewService(db, cfg, s3Client)
+	assetHandler := asset.NewHandler(assetService, cfg)
+	asset.RegisterRoutes(apiV1, assetHandler, cfg)
+
 	// API compatibility router for clients connecting via /api
 	apiLegacy := srv.App.Group("/api")
 	auth.RegisterRoutes(apiLegacy, authHandler, cfg)
@@ -138,6 +144,7 @@ func runServer(cfg *config.Config) {
 	role.RegisterRoutes(apiLegacy, roleHandler, cfg)
 	department.RegisterRoutes(apiLegacy, deptHandler, cfg)
 	company.RegisterRoutes(apiLegacy, companyHandler, cfg)
+	asset.RegisterRoutes(apiLegacy, assetHandler, cfg)
 
 	if err := srv.Run(); err != nil {
 		slog.Error("Server terminated unexpectedly", "error", err)
