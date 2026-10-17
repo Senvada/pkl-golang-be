@@ -12,6 +12,7 @@ type User struct {
 	RoleID       uuid.UUID  `gorm:"type:uuid;not null;index"`
 	DepartmentID *uuid.UUID `gorm:"type:uuid;index"`
 	CompanyID    *uuid.UUID `gorm:"type:uuid;index"`
+	ParentID     *uuid.UUID `gorm:"type:uuid;index"`
 	Name         string     `gorm:"size:255;not null"`
 	Email        string     `gorm:"size:255;not null"`
 	Password     string     `gorm:"type:text;not null"`
@@ -40,6 +41,13 @@ type Department struct {
 	Color     string    `gorm:"size:7;not null"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+type Company struct {
+	ID        uuid.UUID      `gorm:"type:uuid;primaryKey"`
+	Name      string         `gorm:"size:255;not null"`
+	Slug      string         `gorm:"size:255;not null"`
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 

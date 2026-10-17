@@ -146,3 +146,130 @@ Authorization: Bearer {{authToken}}
 # ==============================================================================
 ### Keluar dari Akun (Mencabut sesi dan menghapus cookie)
 POST {{baseUrl}}/auth/logout
+
+
+# ==============================================================================
+# 8. MANAJEMEN DEPARTEMEN / JURUSAN
+# ==============================================================================
+### Ambil Semua Jurusan (Departments)
+GET {{baseUrl}}/departments
+Authorization: Bearer {{authToken}}
+
+### Tambah Jurusan Baru
+# @name createDepartment
+POST {{baseUrl}}/departments
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Teknik Otomasi Industri",
+  "code": "TOI",
+  "color": "#F59E0B"
+}
+
+@newDeptId = {{createDepartment.response.body.data.id}}
+
+### Ambil Detail Jurusan
+GET {{baseUrl}}/departments/{{newDeptId}}
+Authorization: Bearer {{authToken}}
+
+### Ubah Data Jurusan
+PUT {{baseUrl}}/departments/{{newDeptId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Teknik Otomasi & Mekatronika",
+  "color": "#10B981"
+}
+
+
+# ==============================================================================
+# 9. MANAJEMEN PERUSAHAAN MITRA / INDUSTRI
+# ==============================================================================
+### Ambil Semua Perusahaan Mitra
+GET {{baseUrl}}/companies
+Authorization: Bearer {{authToken}}
+
+### Tambah Perusahaan Mitra Baru
+# @name createCompany
+POST {{baseUrl}}/companies
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "PT Telkom Digital Solusindo",
+  "email": "hr@telkomdigital.co.id",
+  "phone_number": "081234567890",
+  "address": "Jl. Telkom Megah No. 45, Malang",
+  "description": "Mitra industri resmi PKL bidang Software Engineering & Network.",
+  "status": "active"
+}
+
+@newCompanyId = {{createCompany.response.body.data.id}}
+
+### Ambil Detail Perusahaan
+GET {{baseUrl}}/companies/{{newCompanyId}}
+Authorization: Bearer {{authToken}}
+
+
+# ==============================================================================
+# 10. MANAJEMEN PENGGUNA (USERS & SUB-AKUN INDUSTRI)
+# ==============================================================================
+### Ambil Daftar Pengguna (Paginasi + Filter)
+GET {{baseUrl}}/users?page=1&limit=10&search=&status=active
+Authorization: Bearer {{authToken}}
+
+### Tambah Akun Utama Industri (Industry Lead)
+# @name createIndustryUser
+POST {{baseUrl}}/users
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Budi Santoso (PIC Telkom)",
+  "email": "budi.pic@telkomdigital.co.id",
+  "password": "PasswordPIC2026!",
+  "role_id": "c26d80e8-77f0-45f5-8690-3162efd2d773",
+  "company_id": "{{newCompanyId}}",
+  "status": "active"
+}
+
+@industryLeadId = {{createIndustryUser.response.body.data.id}}
+
+### Tambah Sub-Akun Siswa PKL (Terhubung ke Jurusan & Industri & PIC Pembimbing)
+# @name createStudentUser
+POST {{baseUrl}}/users
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Rizky Siswa Telkom",
+  "email": "rizky.pkl@smkn6malang.sch.id",
+  "password": "PasswordSiswa2026!",
+  "role_id": "{{defaultRoleId}}",
+  "department_id": "{{newDeptId}}",
+  "company_id": "{{newCompanyId}}",
+  "parent_id": "{{industryLeadId}}",
+  "status": "active"
+}
+
+@studentUserId = {{createStudentUser.response.body.data.id}}
+
+### Ambil Detail Pengguna
+GET {{baseUrl}}/users/{{studentUserId}}
+Authorization: Bearer {{authToken}}
+
+### Ubah Data Pengguna (Ganti Nama / Status)
+PUT {{baseUrl}}/users/{{studentUserId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Rizky Pratama Siswa Telkom",
+  "status": "active"
+}
+
+### Hapus Pengguna (Soft Delete)
+DELETE {{baseUrl}}/users/{{studentUserId}}
+Authorization: Bearer {{authToken}}
