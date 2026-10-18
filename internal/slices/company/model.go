@@ -28,3 +28,33 @@ type Company struct {
 	UpdatedAt   time.Time
 	DeletedAt   gorm.DeletedAt `gorm:"index"`
 }
+
+type CompanyDepartment struct {
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CompanyID    uuid.UUID `gorm:"type:uuid;not null;index"`
+	DepartmentID uuid.UUID `gorm:"type:uuid;not null;index"`
+	CreatedAt    time.Time
+	DeletedAt    gorm.DeletedAt `gorm:"index"`
+}
+
+type Department struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Name      string    `gorm:"size:100;not null"`
+	Code      string    `gorm:"size:20;not null"`
+	Color     string    `gorm:"size:7;not null"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+func (Company) TableName() string {
+	return "companies"
+}
+
+func (CompanyDepartment) TableName() string {
+	return "companies_departments"
+}
+
+func (Department) TableName() string {
+	return "departments"
+}
