@@ -128,7 +128,7 @@ func runServer(cfg *config.Config) {
 	department.RegisterRoutes(apiV1, deptHandler, cfg)
 
 	// Slices: Company
-	companyService := company.NewService(db, cfg)
+	companyService := company.NewService(db, cfg, s3Client)
 	companyHandler := company.NewHandler(companyService, cfg)
 	company.RegisterRoutes(apiV1, companyHandler, cfg)
 
