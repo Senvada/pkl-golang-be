@@ -15,6 +15,7 @@ import (
 	"pkl-golang-be/internal/infra/seeder"
 	"pkl-golang-be/internal/infra/server"
 	"pkl-golang-be/internal/infra/storage"
+	"pkl-golang-be/internal/slices/article"
 	"pkl-golang-be/internal/slices/asset"
 	"pkl-golang-be/internal/slices/auth"
 	"pkl-golang-be/internal/slices/company"
@@ -136,6 +137,11 @@ func runServer(cfg *config.Config) {
 	assetService := asset.NewService(db, cfg, s3Client)
 	assetHandler := asset.NewHandler(assetService, cfg)
 	asset.RegisterRoutes(apiV1, assetHandler, cfg)
+
+	// Slices: Article
+	articleService := article.NewService(db, cfg, s3Client)
+	articleHandler := article.NewHandler(articleService, cfg)
+	article.RegisterRoutes(apiV1, articleHandler, cfg)
 
 	if err := srv.Run(); err != nil {
 		slog.Error("Server terminated unexpectedly", "error", err)
