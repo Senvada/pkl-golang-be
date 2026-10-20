@@ -195,7 +195,7 @@ func (s *service) GenerateAvatarPresignedURL(ctx context.Context, userID uuid.UU
 		return nil, apperror.BadRequest("Format gambar tidak didukung. Harap gunakan JPEG, PNG, WEBP, atau GIF", nil)
 	}
 
-	key := fmt.Sprintf("avatars/%s/%d_%s%s", userID.String(), time.Now().Unix(), uuid.New().String()[:8], ext)
+	key := fmt.Sprintf("avatars/%s/avatar_%d_%s%s", userID.String(), time.Now().Unix(), uuid.New().String()[:6], ext)
 
 	uploadURL, err := s.s3Client.PresignPutObject(ctx, key, req.ContentType, 0, 5*time.Minute)
 	if err != nil {
@@ -745,8 +745,19 @@ func (s *service) UpdateUser(ctx context.Context, actor *middleware.AuthClaims, 
 		updates["status"] = *req.Status
 	}
 
+	var oldAvatarToDelete string
 	if req.AvatarURL != nil {
-		updates["avatar_url"] = req.AvatarURL
+		newAvatar := strings.TrimSpace(*req.AvatarURL)
+		if s.s3Client != nil && user.AvatarURL != nil && *user.AvatarURL != "" && *user.AvatarURL != newAvatar {
+			oldAvatarToDelete = *user.AvatarURL
+		}
+		if newAvatar == "" {
+			updates["avatar_url"] = nil
+			user.AvatarURL = nil
+		} else {
+			updates["avatar_url"] = &newAvatar
+			user.AvatarURL = &newAvatar
+		}
 	}
 
 	if len(updates) > 0 {
@@ -755,6 +766,10 @@ func (s *service) UpdateUser(ctx context.Context, actor *middleware.AuthClaims, 
 		if err := s.db.WithContext(ctx).Model(&user).Updates(updates).Error; err != nil {
 			return nil, apperror.Internal("Gagal memperbarui data pengguna", err)
 		}
+	}
+
+	if oldAvatarToDelete != "" && s.s3Client != nil {
+		_ = s.s3Client.DeleteObjectByURL(ctx, oldAvatarToDelete)
 	}
 
 	return s.GetUserByID(ctx, actor, id)
@@ -798,6 +813,10 @@ func (s *service) DeleteUser(ctx context.Context, actor *middleware.AuthClaims, 
 		"status":     "inactive",
 	}).Error; err != nil {
 		return apperror.Internal("Gagal menghapus pengguna", err)
+	}
+
+	if user.AvatarURL != nil && *user.AvatarURL != "" && s.s3Client != nil {
+		_ = s.s3Client.DeleteObjectByURL(ctx, *user.AvatarURL)
 	}
 
 	return nil

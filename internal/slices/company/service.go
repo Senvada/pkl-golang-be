@@ -345,8 +345,19 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 	if req.Content != nil {
 		updates["content"] = *req.Content
 	}
+	var oldImageToDelete string
 	if req.ImageURL != nil {
-		updates["image_url"] = req.ImageURL
+		newImage := strings.TrimSpace(*req.ImageURL)
+		if c.ImageURL != nil && *c.ImageURL != "" && *c.ImageURL != newImage {
+			oldImageToDelete = *c.ImageURL
+		}
+		if newImage == "" {
+			updates["image_url"] = nil
+			c.ImageURL = nil
+		} else {
+			updates["image_url"] = &newImage
+			c.ImageURL = &newImage
+		}
 	}
 	if req.GmapsLink != nil {
 		updates["gmaps_link"] = req.GmapsLink
@@ -395,6 +406,10 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, apperror.Internal("Gagal menyimpan perubahan", err)
+	}
+
+	if oldImageToDelete != "" && s.s3Client != nil {
+		_ = s.s3Client.DeleteObjectByURL(ctx, oldImageToDelete)
 	}
 
 	return s.GetByID(ctx, id)
@@ -452,6 +467,10 @@ func (s *service) Delete(ctx context.Context, actor *middleware.AuthClaims, id u
 		return apperror.Internal("Gagal menghapus perusahaan mitra", err)
 	}
 
+	if c.ImageURL != nil && *c.ImageURL != "" && s.s3Client != nil {
+		_ = s.s3Client.DeleteObjectByURL(ctx, *c.ImageURL)
+	}
+
 	return nil
 }
 
@@ -490,7 +509,7 @@ func (s *service) GenerateImagePresignedURL(ctx context.Context, actor *middlewa
 		return nil, apperror.BadRequest("Format gambar tidak didukung. Harap gunakan JPEG, PNG, WEBP, atau GIF", nil)
 	}
 
-	key := fmt.Sprintf("companies/%s/%d_%s%s", folderID, time.Now().Unix(), uuid.New().String()[:8], ext)
+	key := fmt.Sprintf("companies/%s/banner_%d_%s%s", folderID, time.Now().Unix(), uuid.New().String()[:6], ext)
 
 	uploadURL, err := s.s3Client.PresignPutObject(ctx, key, req.ContentType, 0, 10*time.Minute)
 	if err != nil {
