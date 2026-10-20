@@ -18,13 +18,4 @@ func RegisterRoutes(router fiber.Router, h *Handler, cfg *config.Config) {
 	rolesGroup.Put("/:id", h.Update)
 	rolesGroup.Patch("/:id", h.Update)
 	rolesGroup.Delete("/:id", h.Delete)
-
-	// Singular routes (/role/...) for backwards compatibility
-	roleGroup := router.Group("/role", authMiddleware)
-	roleGroup.Get("/", h.GetAll)
-	roleGroup.Post("/", h.Create)
-	roleGroup.Get("/:id", h.GetByID)
-	roleGroup.Put("/:id", h.Update)
-	roleGroup.Patch("/:id", h.Update)
-	roleGroup.Delete("/:id", h.Delete)
 }
