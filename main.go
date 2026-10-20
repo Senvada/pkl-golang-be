@@ -267,6 +267,28 @@ func runSeed(cfg *config.Config, args []string) {
 		os.Exit(1)
 	}
 
+	if len(args) > 0 {
+		switch args[0] {
+		case "departments", "jurusan":
+			slog.Info("Running departments seeder (10 default vocational departments)...")
+			if err := seeder.SeedDepartments(db); err != nil {
+				slog.Error("Departments seeder failed", "error", err)
+				os.Exit(1)
+			}
+			slog.Info("✅ Departments seeder finished successfully!")
+			return
+
+		case "roles":
+			slog.Info("Running roles seeder...")
+			if err := seeder.SeedRoles(db); err != nil {
+				slog.Error("Roles seeder failed", "error", err)
+				os.Exit(1)
+			}
+			slog.Info("✅ Roles seeder finished successfully!")
+			return
+		}
+	}
+
 	opts := seeder.Options{}
 	for _, arg := range args {
 		switch arg {
@@ -278,6 +300,9 @@ func runSeed(cfg *config.Config, args []string) {
 	}
 
 	slog.Info("Running database seeder...")
+	if err := seeder.EnsureDefaultRolesAndDepartments(db); err != nil {
+		slog.Warn("Failed to ensure default roles and departments", "error", err)
+	}
 	if err := seeder.SeedDefaultAdmin(db, cfg, opts); err != nil {
 		slog.Error("Default admin seeder failed", "error", err)
 		os.Exit(1)
@@ -303,7 +328,7 @@ Usage:
 Available Commands:
   serve                 Start the Fiber HTTP API server (default, auto-bootstraps environment)
   bootstrap             Run full environment bootstrap (probe DB, ensure DB, migrate, seed admin, check storage)
-  seed [flags]          Seed default admin user (--restore to restore soft-deleted, --force to update password)
+  seed [target|flags]   Seed database (target: 'departments', 'roles', or all; flags: --restore, --force)
   migrate [action]      Run database migrations (up, down, fresh, drop, version, create)
   test-db               Test connection to PostgreSQL database
   test-s3               Test S3 storage connection & generate sample presigned URL
