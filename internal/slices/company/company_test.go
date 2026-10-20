@@ -114,11 +114,12 @@ func TestCompanyLifecycleAndDepartments(t *testing.T) {
 	lat := -7.9825
 	lng := 112.6308
 
-	// 1. Create Company with accepted departments
+	initialImage := "http://127.0.0.1:54326/object/public/pkl-assets/companies/test_initial.webp"
 	createPayload := company.CreateCompanyRequest{
 		Name:          uniqueName,
 		Address:       &address,
 		PhoneNumber:   &phone,
+		ImageURL:      &initialImage,
 		Lat:           &lat,
 		Lng:           &lng,
 		Status:        "active",
@@ -172,8 +173,10 @@ func TestCompanyLifecycleAndDepartments(t *testing.T) {
 
 	// 4. Update Company Details
 	updatedName := uniqueName + " Sukses"
+	updatedImage := "http://127.0.0.1:54326/object/public/pkl-assets/companies/test_updated.webp"
 	updatePayload := company.UpdateCompanyRequest{
-		Name: &updatedName,
+		Name:     &updatedName,
+		ImageURL: &updatedImage,
 	}
 	upBody, _ := json.Marshal(updatePayload)
 	upReq := httptest.NewRequest("PUT", "/api/v1/companies/"+createdID, bytes.NewReader(upBody))
