@@ -17,12 +17,4 @@ func RegisterRoutes(router fiber.Router, h *Handler, cfg *config.Config) {
 	assetsGroup.Post("/presign", h.PresignUpload)
 	assetsGroup.Post("", h.Create)
 	assetsGroup.Delete("/:id", h.Delete)
-
-	// Singular routes (/asset)
-	assetGroup := router.Group("/asset", authMiddleware)
-	assetGroup.Get("", h.GetAll)
-	assetGroup.Get("/:id", h.GetByID)
-	assetGroup.Post("/presign", h.PresignUpload)
-	assetGroup.Post("", h.Create)
-	assetGroup.Delete("/:id", h.Delete)
 }

@@ -137,15 +137,6 @@ func runServer(cfg *config.Config) {
 	assetHandler := asset.NewHandler(assetService, cfg)
 	asset.RegisterRoutes(apiV1, assetHandler, cfg)
 
-	// API compatibility router for clients connecting via /api
-	apiLegacy := srv.App.Group("/api")
-	auth.RegisterRoutes(apiLegacy, authHandler, cfg)
-	user.RegisterRoutes(apiLegacy, userHandler, cfg)
-	role.RegisterRoutes(apiLegacy, roleHandler, cfg)
-	department.RegisterRoutes(apiLegacy, deptHandler, cfg)
-	company.RegisterRoutes(apiLegacy, companyHandler, cfg)
-	asset.RegisterRoutes(apiLegacy, assetHandler, cfg)
-
 	if err := srv.Run(); err != nil {
 		slog.Error("Server terminated unexpectedly", "error", err)
 		os.Exit(1)

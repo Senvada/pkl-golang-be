@@ -10,9 +10,6 @@ import (
 func RegisterRoutes(router fiber.Router, h *Handler, cfg *config.Config) {
 	authMiddleware := middleware.NewAuthMiddleware(cfg)
 
-	// Direct routes
-	router.Post("/maps/resolve", authMiddleware, h.ResolveMaps)
-
 	// Plural routes (/companies)
 	companiesGroup := router.Group("/companies")
 	// Public routes
@@ -29,22 +26,4 @@ func RegisterRoutes(router fiber.Router, h *Handler, cfg *config.Config) {
 	companiesGroup.Put("/:id", authMiddleware, h.Update)
 	companiesGroup.Patch("/:id/content", authMiddleware, h.UpdateContent)
 	companiesGroup.Delete("/:id", authMiddleware, h.Delete)
-
-	// Singular routes compatibility (/company)
-	companyGroup := router.Group("/company")
-	companyGroup.Get("", h.GetCompanies)
-	companyGroup.Get("/maps", h.GetMaps)
-	companyGroup.Get("/slug/:slug", h.GetBySlug)
-	companyGroup.Get("/:id", h.GetByID)
-
-	companyGroup.Post("", authMiddleware, h.Create)
-	companyGroup.Post("/maps/resolve", authMiddleware, h.ResolveMaps)
-	companyGroup.Post("/image/presign", authMiddleware, h.PresignImage)
-	companyGroup.Post("/:id/image/presign", authMiddleware, h.PresignImage)
-	companyGroup.Put("/:id", authMiddleware, h.Update)
-	companyGroup.Patch("/:id/content", authMiddleware, h.UpdateContent)
-	companyGroup.Delete("/:id", authMiddleware, h.Delete)
-
-	// Direct compatibility route /maps/resolve
-	router.Post("/maps/resolve", authMiddleware, h.ResolveMaps)
 }

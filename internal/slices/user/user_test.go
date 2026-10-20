@@ -142,7 +142,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 	})
 
 	// 2. Get Me
-	getResp, getBody, err := makeRequest(tc.app, "GET", "/api/v1/user/me", token, nil)
+	getResp, getBody, err := makeRequest(tc.app, "GET", "/api/v1/users/me", token, nil)
 	if err != nil || getResp.StatusCode != http.StatusOK {
 		t.Fatalf("Failed to get profile: status %d, body: %v", getResp.StatusCode, getBody)
 	}
@@ -153,7 +153,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 
 	// 3. Update Name
 	updatedName := "Nama Diperbarui"
-	patchResp, patchBody, err := makeRequest(tc.app, "PATCH", "/api/v1/user/me", token, map[string]any{
+	patchResp, patchBody, err := makeRequest(tc.app, "PATCH", "/api/v1/users/me", token, map[string]any{
 		"name": updatedName,
 	})
 	if err != nil || patchResp.StatusCode != http.StatusOK {
@@ -166,7 +166,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 
 	// 4. Presign Avatar Upload URL (if S3 client is initialized)
 	if tc.s3Client != nil {
-		presignResp, presignBody, err := makeRequest(tc.app, "POST", "/api/v1/user/me/avatar/presign", token, map[string]any{
+		presignResp, presignBody, err := makeRequest(tc.app, "POST", "/api/v1/users/me/avatar/presign", token, map[string]any{
 			"content_type": "image/webp",
 			"file_size":    50000,
 		})
@@ -181,7 +181,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 		publicURL := presignData["public_url"].(string)
 
 		// 5. Update avatar_url in profile
-		patchAvatarResp, patchAvatarBody, err := makeRequest(tc.app, "PATCH", "/api/v1/user/me", token, map[string]any{
+		patchAvatarResp, patchAvatarBody, err := makeRequest(tc.app, "PATCH", "/api/v1/users/me", token, map[string]any{
 			"avatar_url": publicURL,
 		})
 		if err != nil || patchAvatarResp.StatusCode != http.StatusOK {
@@ -193,7 +193,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 		}
 
 		// 6. Delete Avatar
-		delResp, delBody, err := makeRequest(tc.app, "DELETE", "/api/v1/user/me/avatar", token, nil)
+		delResp, delBody, err := makeRequest(tc.app, "DELETE", "/api/v1/users/me/avatar", token, nil)
 		if err != nil || delResp.StatusCode != http.StatusOK {
 			t.Fatalf("Failed to delete avatar: status %d, body: %v", delResp.StatusCode, delBody)
 		}
@@ -204,7 +204,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 	}
 
 	// 7. Change Password - Wrong old password
-	wrongPassResp, _, err := makeRequest(tc.app, "PUT", "/api/v1/user/me/password", token, map[string]any{
+	wrongPassResp, _, err := makeRequest(tc.app, "PUT", "/api/v1/users/me/password", token, map[string]any{
 		"old_password": "WrongPassword!",
 		"new_password": "NewSecretPass123!",
 	})
@@ -214,7 +214,7 @@ func TestUserProfileAndPresignFlow(t *testing.T) {
 
 	// 8. Change Password - Correct old password
 	newPass := "NewSecretPass123!"
-	correctPassResp, _, err := makeRequest(tc.app, "PUT", "/api/v1/user/me/password", token, map[string]any{
+	correctPassResp, _, err := makeRequest(tc.app, "PUT", "/api/v1/users/me/password", token, map[string]any{
 		"old_password": initialPassword,
 		"new_password": newPass,
 	})

@@ -205,7 +205,7 @@ func TestCompanyLifecycleAndDepartments(t *testing.T) {
 		URL: "https://www.google.com/maps/place/SMK+Negeri+6+Malang/@-7.9825678,112.6308123,17z/data=!3m1!4b1",
 	}
 	resBody, _ := json.Marshal(resolvePayload)
-	resReq := httptest.NewRequest("POST", "/api/v1/maps/resolve", bytes.NewReader(resBody))
+	resReq := httptest.NewRequest("POST", "/api/v1/companies/maps/resolve", bytes.NewReader(resBody))
 	resReq.Header.Set("Content-Type", "application/json")
 	resReq.Header.Set("Authorization", "Bearer "+token)
 
