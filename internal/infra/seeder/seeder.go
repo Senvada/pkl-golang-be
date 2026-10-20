@@ -28,8 +28,8 @@ func EnsureDefaultAdmin(db *gorm.DB, cfg *config.Config) error {
 	return SeedDefaultAdmin(db, cfg, Options{})
 }
 
-// EnsureDefaultRolesAndDepartments seeds initial roles and departments if not yet created.
-func EnsureDefaultRolesAndDepartments(db *gorm.DB) error {
+// SeedRoles seeds initial roles if not yet created.
+func SeedRoles(db *gorm.DB) error {
 	type defaultRole struct {
 		Name  string
 		Color string
@@ -47,11 +47,19 @@ func EnsureDefaultRolesAndDepartments(db *gorm.DB) error {
 	for _, r := range roles {
 		var count int64
 		if err := db.Table("roles").Where("name = ? AND deleted_at IS NULL", r.Name).Count(&count).Error; err == nil && count == 0 {
-			_ = db.Exec("INSERT INTO roles (id, name, color, permissions, created_at, updated_at) VALUES (gen_random_uuid(), ?, ?, ?::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-				r.Name, r.Color, r.Perm).Error
+			if err := db.Exec("INSERT INTO roles (id, name, color, permissions, created_at, updated_at) VALUES (gen_random_uuid(), ?, ?, ?::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+				r.Name, r.Color, r.Perm).Error; err != nil {
+				return fmt.Errorf("failed to insert default role %s: %w", r.Name, err)
+			}
+			slog.Info("✅ Seeded default role", "name", r.Name)
 		}
 	}
 
+	return nil
+}
+
+// SeedDepartments seeds the 10 default vocational departments (jurusan).
+func SeedDepartments(db *gorm.DB) error {
 	type defaultDept struct {
 		Name  string
 		Code  string
@@ -62,19 +70,35 @@ func EnsureDefaultRolesAndDepartments(db *gorm.DB) error {
 		{Name: "Rekayasa Perangkat Lunak", Code: "RPL", Color: "#3B82F6"},
 		{Name: "Teknik Komputer dan Jaringan", Code: "TKJ", Color: "#10B981"},
 		{Name: "Sistem Informasi, Jaringan, dan Aplikasi", Code: "SIJA", Color: "#6366F1"},
-		{Name: "Desain Komunikasi Visual", Code: "DKV", Color: "#F59E0B"},
 		{Name: "Desain Pemodelan dan Informasi Bangunan", Code: "DPIB", Color: "#EC4899"},
+		{Name: "Teknik Pemesinan", Code: "TPM", Color: "#F97316"},
+		{Name: "Teknik Kendaraan Ringan", Code: "TKR", Color: "#EF4444"},
+		{Name: "Teknik Instalasi Tenaga Listrik", Code: "TITL", Color: "#F59E0B"},
+		{Name: "Teknik Alat Berat", Code: "TAB", Color: "#84CC16"},
+		{Name: "Teknik Otomotif", Code: "OTO", Color: "#14B8A6"},
+		{Name: "Konstruksi Jalan, Irigasi, dan Jembatan", Code: "KJIJ", Color: "#8B5CF6"},
 	}
 
 	for _, d := range depts {
 		var count int64
 		if err := db.Table("departments").Where("code = ? AND deleted_at IS NULL", d.Code).Count(&count).Error; err == nil && count == 0 {
-			_ = db.Exec("INSERT INTO departments (id, name, code, color, created_at, updated_at) VALUES (gen_random_uuid(), ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-				d.Name, d.Code, d.Color).Error
+			if err := db.Exec("INSERT INTO departments (id, name, code, color, created_at, updated_at) VALUES (gen_random_uuid(), ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+				d.Name, d.Code, d.Color).Error; err != nil {
+				return fmt.Errorf("failed to insert default department %s: %w", d.Code, err)
+			}
+			slog.Info("✅ Seeded default department", "code", d.Code, "name", d.Name)
 		}
 	}
 
 	return nil
+}
+
+// EnsureDefaultRolesAndDepartments seeds initial roles and departments if not yet created.
+func EnsureDefaultRolesAndDepartments(db *gorm.DB) error {
+	if err := SeedRoles(db); err != nil {
+		return err
+	}
+	return SeedDepartments(db)
 }
 
 // SeedDefaultAdmin seeds the default admin user with configurable options.
