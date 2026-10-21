@@ -67,16 +67,16 @@ func SeedDepartments(db *gorm.DB) error {
 	}
 
 	depts := []defaultDept{
-		{Name: "Rekayasa Perangkat Lunak", Code: "RPL", Color: "#3B82F6"},
-		{Name: "Teknik Komputer dan Jaringan", Code: "TKJ", Color: "#10B981"},
-		{Name: "Sistem Informasi, Jaringan, dan Aplikasi", Code: "SIJA", Color: "#6366F1"},
-		{Name: "Desain Pemodelan dan Informasi Bangunan", Code: "DPIB", Color: "#EC4899"},
-		{Name: "Teknik Pemesinan", Code: "TPM", Color: "#F97316"},
-		{Name: "Teknik Kendaraan Ringan", Code: "TKR", Color: "#EF4444"},
-		{Name: "Teknik Instalasi Tenaga Listrik", Code: "TITL", Color: "#F59E0B"},
-		{Name: "Teknik Alat Berat", Code: "TAB", Color: "#84CC16"},
+		{Name: "Rekayasa Perangkat Lunak", Code: "RPL", Color: "#155dfc"},
+		{Name: "Teknik Komputer dan Jaringan", Code: "TKJ", Color: "#8b5cf6"},
+		{Name: "Sistem Informasi, Jaringan, dan Aplikasi", Code: "SIJA", Color: "#64748b"},
+		{Name: "Desain Pemodelan dan Informasi Bangunan", Code: "DPIB", Color: "#dc2626"},
+		{Name: "Teknik Pemesinan", Code: "TPM", Color: "#fbbf24"},
+		{Name: "Teknik Kendaraan Ringan", Code: "TKR", Color: "#3b82f6"},
+		{Name: "Teknik Instalasi Tenaga Listrik", Code: "TITL", Color: "#f59e0b"},
+		{Name: "Teknik Alat Berat", Code: "TAB", Color: "#16a34a"},
 		{Name: "Teknik Otomotif", Code: "OTO", Color: "#14B8A6"},
-		{Name: "Konstruksi Jalan, Irigasi, dan Jembatan", Code: "KJIJ", Color: "#8B5CF6"},
+		{Name: "Konstruksi Jalan, Irigasi, dan Jembatan", Code: "KJIJ", Color: "#009689"},
 	}
 
 	for _, d := range depts {
@@ -87,6 +87,8 @@ func SeedDepartments(db *gorm.DB) error {
 				return fmt.Errorf("failed to insert default department %s: %w", d.Code, err)
 			}
 			slog.Info("✅ Seeded default department", "code", d.Code, "name", d.Name)
+		} else {
+			_ = db.Exec("UPDATE departments SET color = ?, name = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ? AND deleted_at IS NULL", d.Color, d.Name, d.Code).Error
 		}
 	}
 
