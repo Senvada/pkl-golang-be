@@ -11,10 +11,13 @@ func RegisterRoutes(router fiber.Router, h *Handler, cfg *config.Config) {
 	authMiddleware := middleware.NewAuthMiddleware(cfg)
 
 	// Plural routes (/departments)
-	departmentsGroup := router.Group("/departments", authMiddleware)
+	departmentsGroup := router.Group("/departments")
+	// Public routes
 	departmentsGroup.Get("", h.GetAll)
 	departmentsGroup.Get("/:id", h.GetByID)
-	departmentsGroup.Post("", h.Create)
-	departmentsGroup.Put("/:id", h.Update)
-	departmentsGroup.Delete("/:id", h.Delete)
+
+	// Protected routes
+	departmentsGroup.Post("", authMiddleware, h.Create)
+	departmentsGroup.Put("/:id", authMiddleware, h.Update)
+	departmentsGroup.Delete("/:id", authMiddleware, h.Delete)
 }
