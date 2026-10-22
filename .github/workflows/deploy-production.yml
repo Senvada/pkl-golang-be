@@ -126,7 +126,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: production
-    teps:
+    steps:
       - name: Trigger Deploy via SEHooks
         run: |
           curl -i --fail -sS -X POST "http://${{ secrets.STAGING_HOST }}:3001/webhook/baad6d6a4e2aee80c30bf51bc27d10545d5fe3af7d16d5bb"
