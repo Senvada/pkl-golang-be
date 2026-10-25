@@ -11,6 +11,7 @@ import (
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/middleware"
 	"pkl-golang-be/internal/shared/apperror"
+	"pkl-golang-be/internal/shared/authutil"
 	"pkl-golang-be/internal/shared/pagination"
 
 	"github.com/google/uuid"
@@ -59,14 +60,6 @@ func (s *service) GetProfile(ctx context.Context, userID uuid.UUID) (*UserProfil
 	var role Role
 	_ = s.db.WithContext(ctx).Where("id = ?", user.RoleID).First(&role)
 
-	var department *Department
-	if user.DepartmentID != nil {
-		var dept Department
-		if err := s.db.WithContext(ctx).Where("id = ?", *user.DepartmentID).First(&dept).Error; err == nil {
-			department = &dept
-		}
-	}
-
 	var comp *Company
 	if user.CompanyID != nil {
 		var c Company
@@ -86,7 +79,7 @@ func (s *service) GetProfile(ctx context.Context, userID uuid.UUID) (*UserProfil
 	var googleCount int64
 	s.db.WithContext(ctx).Model(&UserGoogleAccount{}).Where("user_id = ?", user.ID).Count(&googleCount)
 
-	return s.buildProfileResponse(&user, &role, department, comp, parentName, googleCount > 0), nil
+	return s.buildProfileResponse(ctx, &user, &role, comp, parentName, googleCount > 0), nil
 }
 
 func (s *service) UpdateProfile(ctx context.Context, userID uuid.UUID, req UpdateProfileRequest) (*UserProfileResponse, error) {
@@ -241,10 +234,17 @@ func (s *service) DeleteAvatar(ctx context.Context, userID uuid.UUID) (*UserProf
 // -----------------------------------------------------------------------
 
 func (s *service) GetUsers(ctx context.Context, actor *middleware.AuthClaims, filter UserFilterQuery, p pagination.Params) ([]UserItemResponse, pagination.Meta, error) {
-	query := s.db.WithContext(ctx).Model(&User{}).Where("users.deleted_at IS NULL")
-
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isIndustri := strings.EqualFold(actor.RoleName, "industri") || strings.EqualFold(actor.RoleName, "pembimbing industri")
+
+	if !isAdmin {
+		hasAccess, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "read")
+		if err != nil || !hasAccess {
+			return nil, pagination.Meta{}, apperror.Forbidden("Anda tidak memiliki izin untuk mengakses manajemen pengguna")
+		}
+	}
+
+	query := s.db.WithContext(ctx).Model(&User{}).Where("users.deleted_at IS NULL")
 
 	// Scoping logic:
 	// - If Industri / Company PIC: Restricted to users under their company OR supervised by them (parent_id)
@@ -253,6 +253,12 @@ func (s *service) GetUsers(ctx context.Context, actor *middleware.AuthClaims, fi
 			query = query.Where("(users.company_id = ? OR users.parent_id = ?)", *actor.CompanyID, actor.UserID)
 		} else {
 			query = query.Where("users.parent_id = ?", actor.UserID)
+		}
+	} else if !isAdmin {
+		// Non-admin (Pembimbing / Guru / etc.): Scoped to users belonging to their bound departments
+		actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+		if len(actorDeptIDs) > 0 {
+			query = query.Where("(users.department_id IN (?) OR users.id IN (SELECT user_id FROM users_departments WHERE department_id IN (?) AND deleted_at IS NULL) OR users.id = ?)", actorDeptIDs, actorDeptIDs, actor.UserID)
 		}
 	}
 
@@ -269,7 +275,7 @@ func (s *service) GetUsers(ctx context.Context, actor *middleware.AuthClaims, fi
 
 	// Filter Department (Jurusan)
 	if filter.DepartmentID != nil {
-		query = query.Where("users.department_id = ?", *filter.DepartmentID)
+		query = query.Where("(users.department_id = ? OR users.id IN (SELECT user_id FROM users_departments WHERE department_id = ? AND deleted_at IS NULL))", *filter.DepartmentID, *filter.DepartmentID)
 	}
 
 	// Filter Company (Industri)
@@ -322,6 +328,22 @@ func (s *service) GetUsers(ctx context.Context, actor *middleware.AuthClaims, fi
 		if u.ParentID != nil {
 			parentIDs = append(parentIDs, *u.ParentID)
 		}
+	}
+
+	// Batch query users_departments join records
+	type userDeptRow struct {
+		UserID       uuid.UUID `gorm:"column:user_id"`
+		DepartmentID uuid.UUID `gorm:"column:department_id"`
+	}
+	var userDeptRows []userDeptRow
+	s.db.WithContext(ctx).Table("users_departments").
+		Where("user_id IN ? AND deleted_at IS NULL", userIDs).
+		Scan(&userDeptRows)
+
+	userDeptsMap := make(map[uuid.UUID][]uuid.UUID)
+	for _, udr := range userDeptRows {
+		userDeptsMap[udr.UserID] = append(userDeptsMap[udr.UserID], udr.DepartmentID)
+		deptIDs = append(deptIDs, udr.DepartmentID)
 	}
 
 	// Query Roles
@@ -421,16 +443,30 @@ func (s *service) GetUsers(ctx context.Context, actor *middleware.AuthClaims, fi
 			UpdatedAt:    u.UpdatedAt,
 		}
 
-		if u.DepartmentID != nil {
-			if d, ok := deptMap[*u.DepartmentID]; ok {
-				item.DepartmentName = &d.Name
-				item.Department = &DepartmentDTO{
+		// Multi-department assembly
+		assignedDeptIDs := userDeptsMap[u.ID]
+		if len(assignedDeptIDs) == 0 && u.DepartmentID != nil {
+			assignedDeptIDs = []uuid.UUID{*u.DepartmentID}
+		}
+		item.DepartmentIDs = assignedDeptIDs
+
+		var assignedDepts []DepartmentDTO
+		for _, did := range assignedDeptIDs {
+			if d, ok := deptMap[did]; ok {
+				assignedDepts = append(assignedDepts, DepartmentDTO{
 					ID:    d.ID,
 					Name:  d.Name,
 					Code:  d.Code,
 					Color: d.Color,
-				}
+				})
 			}
+		}
+		item.Departments = assignedDepts
+
+		if len(assignedDepts) > 0 {
+			item.DepartmentID = &assignedDepts[0].ID
+			item.DepartmentName = &assignedDepts[0].Name
+			item.Department = &assignedDepts[0]
 		}
 
 		if u.CompanyID != nil {
@@ -482,16 +518,47 @@ func (s *service) GetUserByID(ctx context.Context, actor *middleware.AuthClaims,
 		if !allowed {
 			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk melihat pengguna ini")
 		}
+	} else if !isAdmin && user.ID != actor.UserID {
+		hasAccess, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "read")
+		if !hasAccess {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk melihat pengguna ini")
+		}
+		actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+		if len(actorDeptIDs) > 0 {
+			targetDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, user.ID)
+			hasOverlap := false
+			for _, ad := range actorDeptIDs {
+				for _, td := range targetDeptIDs {
+					if ad == td {
+						hasOverlap = true
+						break
+					}
+				}
+				if hasOverlap {
+					break
+				}
+			}
+			if !hasOverlap {
+				return nil, apperror.Forbidden("Pengguna ini berada di luar jurusan yang dibind ke akun Anda")
+			}
+		}
 	}
 
 	var role Role
 	_ = s.db.WithContext(ctx).Where("id = ?", user.RoleID).First(&role)
 
-	var department *Department
-	if user.DepartmentID != nil {
-		var d Department
-		if err := s.db.WithContext(ctx).Where("id = ?", *user.DepartmentID).First(&d).Error; err == nil {
-			department = &d
+	userDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, user.ID)
+	var depts []DepartmentDTO
+	if len(userDeptIDs) > 0 {
+		var deptEntities []Department
+		s.db.WithContext(ctx).Where("id IN ? AND deleted_at IS NULL", userDeptIDs).Find(&deptEntities)
+		for _, d := range deptEntities {
+			depts = append(depts, DepartmentDTO{
+				ID:    d.ID,
+				Name:  d.Name,
+				Code:  d.Code,
+				Color: d.Color,
+			})
 		}
 	}
 
@@ -518,33 +585,30 @@ func (s *service) GetUserByID(ctx context.Context, actor *middleware.AuthClaims,
 	s.db.WithContext(ctx).Model(&UserGoogleAccount{}).Where("user_id = ?", user.ID).Count(&googleCount)
 
 	item := &UserItemResponse{
-		ID:           user.ID,
-		Name:         user.Name,
-		Email:        user.Email,
-		AvatarURL:    user.AvatarURL,
-		Image:        user.AvatarURL,
-		Status:       user.Status,
-		RoleID:       user.RoleID,
-		RoleName:     role.Name,
-		Role:         &RoleDTO{ID: role.ID, Name: role.Name, Color: role.Color},
-		DepartmentID: user.DepartmentID,
-		CompanyID:    user.CompanyID,
-		ParentID:     user.ParentID,
-		ParentName:   parentName,
-		SubUserCount: subUserCount,
-		GoogleBound:  googleCount > 0,
-		CreatedAt:    user.CreatedAt,
-		UpdatedAt:    user.UpdatedAt,
+		ID:            user.ID,
+		Name:          user.Name,
+		Email:         user.Email,
+		AvatarURL:     user.AvatarURL,
+		Image:         user.AvatarURL,
+		Status:        user.Status,
+		RoleID:        user.RoleID,
+		RoleName:      role.Name,
+		Role:          &RoleDTO{ID: role.ID, Name: role.Name, Color: role.Color},
+		DepartmentIDs: userDeptIDs,
+		Departments:   depts,
+		CompanyID:     user.CompanyID,
+		ParentID:      user.ParentID,
+		ParentName:    parentName,
+		SubUserCount:  subUserCount,
+		GoogleBound:   googleCount > 0,
+		CreatedAt:     user.CreatedAt,
+		UpdatedAt:     user.UpdatedAt,
 	}
 
-	if department != nil {
-		item.DepartmentName = &department.Name
-		item.Department = &DepartmentDTO{
-			ID:    department.ID,
-			Name:  department.Name,
-			Code:  department.Code,
-			Color: department.Color,
-		}
+	if len(depts) > 0 {
+		item.DepartmentID = &depts[0].ID
+		item.DepartmentName = &depts[0].Name
+		item.Department = &depts[0]
 	}
 
 	if comp != nil {
@@ -562,6 +626,13 @@ func (s *service) GetUserByID(ctx context.Context, actor *middleware.AuthClaims,
 func (s *service) CreateUser(ctx context.Context, actor *middleware.AuthClaims, req CreateUserRequest) (*UserItemResponse, error) {
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isIndustri := strings.EqualFold(actor.RoleName, "industri") || strings.EqualFold(actor.RoleName, "pembimbing industri")
+
+	if !isAdmin {
+		hasPerm, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "write")
+		if err != nil || !hasPerm {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk membuat akun pengguna baru")
+		}
+	}
 
 	trimmedEmail := strings.ToLower(strings.TrimSpace(req.Email))
 	trimmedName := strings.TrimSpace(req.Name)
@@ -587,21 +658,55 @@ func (s *service) CreateUser(ctx context.Context, actor *middleware.AuthClaims, 
 	finalCompanyID := req.CompanyID
 	finalParentID := req.ParentID
 
-	// If actor is Industry Lead: automatically lock company_id to their company and parent_id to themselves
+	// If actor is Industry Lead: automatically lock company_id to their company and parent_id to themselves if omitted
 	if !isAdmin && isIndustri {
 		if actor.CompanyID == nil {
 			return nil, apperror.Forbidden("Akun industri Anda belum ditautkan ke perusahaan mitra")
 		}
 		finalCompanyID = actor.CompanyID
-		finalParentID = &actor.UserID
+		if finalParentID == nil || *finalParentID == uuid.Nil {
+			finalParentID = &actor.UserID
+		}
 	}
 
-	// Verify department if provided
-	if req.DepartmentID != nil {
+	if finalParentID != nil && *finalParentID != uuid.Nil {
+		var parentCount int64
+		s.db.WithContext(ctx).Model(&User{}).Where("id = ? AND deleted_at IS NULL", *finalParentID).Count(&parentCount)
+		if parentCount == 0 {
+			return nil, apperror.BadRequest("Data pembimbing yang dipilih tidak ditemukan", nil)
+		}
+	} else {
+		finalParentID = nil
+	}
+
+	// Multi-department resolution
+	var targetDeptIDs []uuid.UUID
+	if len(req.DepartmentIDs) > 0 {
+		targetDeptIDs = req.DepartmentIDs
+	} else if req.DepartmentID != nil && *req.DepartmentID != uuid.Nil {
+		targetDeptIDs = []uuid.UUID{*req.DepartmentID}
+	}
+
+	if len(targetDeptIDs) > 0 {
 		var deptCount int64
-		s.db.WithContext(ctx).Model(&Department{}).Where("id = ? AND deleted_at IS NULL", *req.DepartmentID).Count(&deptCount)
-		if deptCount == 0 {
-			return nil, apperror.BadRequest("Jurusan yang dipilih tidak valid atau tidak ditemukan", nil)
+		s.db.WithContext(ctx).Model(&Department{}).Where("id IN ? AND deleted_at IS NULL", targetDeptIDs).Count(&deptCount)
+		if deptCount != int64(len(targetDeptIDs)) {
+			return nil, apperror.BadRequest("Satu atau lebih jurusan yang dipilih tidak valid atau tidak ditemukan", nil)
+		}
+
+		if !isAdmin && !isIndustri {
+			actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+			if len(actorDeptIDs) > 0 {
+				actorDeptMap := make(map[uuid.UUID]bool)
+				for _, ad := range actorDeptIDs {
+					actorDeptMap[ad] = true
+				}
+				for _, td := range targetDeptIDs {
+					if !actorDeptMap[td] {
+						return nil, apperror.Forbidden("Anda tidak dapat menambahkan pengguna ke jurusan di luar jurusan yang dibind ke akun Anda")
+					}
+				}
+			}
 		}
 	}
 
@@ -624,9 +729,14 @@ func (s *service) CreateUser(ctx context.Context, actor *middleware.AuthClaims, 
 		status = req.Status
 	}
 
+	var primaryDeptID *uuid.UUID
+	if len(targetDeptIDs) > 0 {
+		primaryDeptID = &targetDeptIDs[0]
+	}
+
 	user := User{
 		RoleID:       req.RoleID,
-		DepartmentID: req.DepartmentID,
+		DepartmentID: primaryDeptID,
 		CompanyID:    finalCompanyID,
 		ParentID:     finalParentID,
 		Name:         trimmedName,
@@ -639,6 +749,15 @@ func (s *service) CreateUser(ctx context.Context, actor *middleware.AuthClaims, 
 
 	if err := s.db.WithContext(ctx).Create(&user).Error; err != nil {
 		return nil, apperror.Internal("Gagal menyimpan data pengguna baru", err)
+	}
+
+	// Persist to users_departments join table
+	for _, dID := range targetDeptIDs {
+		ud := UserDepartment{
+			UserID:       user.ID,
+			DepartmentID: dID,
+		}
+		_ = s.db.WithContext(ctx).Create(&ud)
 	}
 
 	return s.GetUserByID(ctx, actor, user.ID)
@@ -656,7 +775,7 @@ func (s *service) UpdateUser(ctx context.Context, actor *middleware.AuthClaims, 
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isIndustri := strings.EqualFold(actor.RoleName, "industri") || strings.EqualFold(actor.RoleName, "pembimbing industri")
 
-	// Scoping check
+	// Scoping and permission check
 	if !isAdmin {
 		allowed := false
 		if isIndustri {
@@ -664,6 +783,31 @@ func (s *service) UpdateUser(ctx context.Context, actor *middleware.AuthClaims, 
 				allowed = true
 			}
 			if user.ParentID != nil && *user.ParentID == actor.UserID {
+				allowed = true
+			}
+		} else {
+			hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "update")
+			hasWrite, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "write")
+			if hasUpdate {
+				// Can update others within their department scope
+				actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+				if len(actorDeptIDs) > 0 {
+					targetDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, user.ID)
+					for _, ad := range actorDeptIDs {
+						for _, td := range targetDeptIDs {
+							if ad == td {
+								allowed = true
+								break
+							}
+						}
+						if allowed {
+							break
+						}
+					}
+				} else {
+					allowed = true
+				}
+			} else if hasWrite && user.CreatedBy != nil && *user.CreatedBy == actor.UserID {
 				allowed = true
 			}
 		}
@@ -716,13 +860,55 @@ func (s *service) UpdateUser(ctx context.Context, actor *middleware.AuthClaims, 
 		updates["role_id"] = *req.RoleID
 	}
 
-	if req.DepartmentID != nil {
+	if req.DepartmentIDs != nil {
+		newDeptIDs := *req.DepartmentIDs
+		if len(newDeptIDs) > 0 {
+			var deptCount int64
+			s.db.WithContext(ctx).Model(&Department{}).Where("id IN ? AND deleted_at IS NULL", newDeptIDs).Count(&deptCount)
+			if deptCount != int64(len(newDeptIDs)) {
+				return nil, apperror.BadRequest("Satu atau lebih jurusan tidak valid", nil)
+			}
+			if !isAdmin && !isIndustri {
+				actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+				if len(actorDeptIDs) > 0 {
+					actorDeptMap := make(map[uuid.UUID]bool)
+					for _, ad := range actorDeptIDs {
+						actorDeptMap[ad] = true
+					}
+					for _, nd := range newDeptIDs {
+						if !actorDeptMap[nd] {
+							return nil, apperror.Forbidden("Anda tidak dapat menetapkan jurusan di luar jurusan yang dibind ke akun Anda")
+						}
+					}
+				}
+			}
+			updates["department_id"] = newDeptIDs[0]
+			user.DepartmentID = &newDeptIDs[0]
+		} else {
+			updates["department_id"] = nil
+			user.DepartmentID = nil
+		}
+
+		// Sync users_departments table
+		_ = s.db.WithContext(ctx).Where("user_id = ?", id).Delete(&UserDepartment{}).Error
+		for _, nd := range newDeptIDs {
+			_ = s.db.WithContext(ctx).Create(&UserDepartment{
+				UserID:       id,
+				DepartmentID: nd,
+			}).Error
+		}
+	} else if req.DepartmentID != nil {
 		var deptCount int64
 		s.db.WithContext(ctx).Model(&Department{}).Where("id = ? AND deleted_at IS NULL", *req.DepartmentID).Count(&deptCount)
 		if deptCount == 0 {
 			return nil, apperror.BadRequest("Jurusan yang dipilih tidak valid", nil)
 		}
 		updates["department_id"] = *req.DepartmentID
+		_ = s.db.WithContext(ctx).Where("user_id = ?", id).Delete(&UserDepartment{}).Error
+		_ = s.db.WithContext(ctx).Create(&UserDepartment{
+			UserID:       id,
+			DepartmentID: *req.DepartmentID,
+		}).Error
 	}
 
 	if req.CompanyID != nil {
@@ -737,8 +923,19 @@ func (s *service) UpdateUser(ctx context.Context, actor *middleware.AuthClaims, 
 		updates["company_id"] = *req.CompanyID
 	}
 
-	if req.ParentID != nil && isAdmin {
-		updates["parent_id"] = *req.ParentID
+	if req.ParentID != nil {
+		if *req.ParentID == uuid.Nil {
+			updates["parent_id"] = nil
+			user.ParentID = nil
+		} else {
+			var parentCount int64
+			s.db.WithContext(ctx).Model(&User{}).Where("id = ? AND deleted_at IS NULL", *req.ParentID).Count(&parentCount)
+			if parentCount == 0 {
+				return nil, apperror.BadRequest("Data pembimbing yang dipilih tidak ditemukan", nil)
+			}
+			updates["parent_id"] = *req.ParentID
+			user.ParentID = req.ParentID
+		}
 	}
 
 	if req.Status != nil {
@@ -800,6 +997,30 @@ func (s *service) DeleteUser(ctx context.Context, actor *middleware.AuthClaims, 
 			if user.ParentID != nil && *user.ParentID == actor.UserID {
 				allowed = true
 			}
+		} else {
+			hasDelete, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "delete")
+			hasWrite, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "users", "write")
+			if hasDelete {
+				actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+				if len(actorDeptIDs) > 0 {
+					targetDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, user.ID)
+					for _, ad := range actorDeptIDs {
+						for _, td := range targetDeptIDs {
+							if ad == td {
+								allowed = true
+								break
+							}
+						}
+						if allowed {
+							break
+						}
+					}
+				} else {
+					allowed = true
+				}
+			} else if hasWrite && user.CreatedBy != nil && *user.CreatedBy == actor.UserID {
+				allowed = true
+			}
 		}
 		if !allowed {
 			return apperror.Forbidden("Anda tidak memiliki izin untuk menghapus pengguna ini")
@@ -815,6 +1036,8 @@ func (s *service) DeleteUser(ctx context.Context, actor *middleware.AuthClaims, 
 		return apperror.Internal("Gagal menghapus pengguna", err)
 	}
 
+	_ = s.db.WithContext(ctx).Where("user_id = ?", id).Delete(&UserDepartment{}).Error
+
 	if user.AvatarURL != nil && *user.AvatarURL != "" && s.s3Client != nil {
 		_ = s.s3Client.DeleteObjectByURL(ctx, *user.AvatarURL)
 	}
@@ -822,34 +1045,49 @@ func (s *service) DeleteUser(ctx context.Context, actor *middleware.AuthClaims, 
 	return nil
 }
 
-func (s *service) buildProfileResponse(user *User, role *Role, dept *Department, comp *Company, parentName *string, googleBound bool) *UserProfileResponse {
-	resp := &UserProfileResponse{
-		ID:          user.ID,
-		Name:        user.Name,
-		Email:       user.Email,
-		AvatarURL:   user.AvatarURL,
-		Image:       user.AvatarURL,
-		Status:      user.Status,
-		RoleID:      user.RoleID,
-		RoleName:    role.Name,
-		Role:        &RoleDTO{ID: role.ID, Name: role.Name, Color: role.Color},
-		CompanyID:   user.CompanyID,
-		ParentID:    user.ParentID,
-		ParentName:  parentName,
-		GoogleBound: googleBound,
-		CreatedAt:   user.CreatedAt,
-		UpdatedAt:   user.UpdatedAt,
+func (s *service) buildProfileResponse(ctx context.Context, user *User, role *Role, comp *Company, parentName *string, googleBound bool) *UserProfileResponse {
+	deptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, user.ID)
+	perms, _, _ := authutil.GetRolePermissions(ctx, s.db, user.RoleID)
+
+	var depts []DepartmentDTO
+	if len(deptIDs) > 0 {
+		var deptEntities []Department
+		s.db.WithContext(ctx).Where("id IN ? AND deleted_at IS NULL", deptIDs).Find(&deptEntities)
+		for _, d := range deptEntities {
+			depts = append(depts, DepartmentDTO{
+				ID:    d.ID,
+				Name:  d.Name,
+				Code:  d.Code,
+				Color: d.Color,
+			})
+		}
 	}
 
-	if dept != nil {
-		resp.DepartmentID = &dept.ID
-		resp.DepartmentName = &dept.Name
-		resp.Department = &DepartmentDTO{
-			ID:    dept.ID,
-			Name:  dept.Name,
-			Code:  dept.Code,
-			Color: dept.Color,
-		}
+	resp := &UserProfileResponse{
+		ID:            user.ID,
+		Name:          user.Name,
+		Email:         user.Email,
+		AvatarURL:     user.AvatarURL,
+		Image:         user.AvatarURL,
+		Status:        user.Status,
+		RoleID:        user.RoleID,
+		RoleName:      role.Name,
+		Role:          &RoleDTO{ID: role.ID, Name: role.Name, Color: role.Color},
+		CompanyID:     user.CompanyID,
+		ParentID:      user.ParentID,
+		ParentName:    parentName,
+		GoogleBound:   googleBound,
+		DepartmentIDs: deptIDs,
+		Departments:   depts,
+		Permissions:   perms,
+		CreatedAt:     user.CreatedAt,
+		UpdatedAt:     user.UpdatedAt,
+	}
+
+	if len(depts) > 0 {
+		resp.DepartmentID = &depts[0].ID
+		resp.DepartmentName = &depts[0].Name
+		resp.Department = &depts[0]
 	}
 
 	if comp != nil {

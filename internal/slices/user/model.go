@@ -56,3 +56,15 @@ type UserGoogleAccount struct {
 	UserID   uuid.UUID `gorm:"type:uuid;not null;uniqueIndex"`
 	GoogleID string    `gorm:"size:255;not null"`
 }
+
+type UserDepartment struct {
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	UserID       uuid.UUID `gorm:"type:uuid;not null;index"`
+	DepartmentID uuid.UUID `gorm:"type:uuid;not null;index"`
+	CreatedAt    time.Time
+	DeletedAt    gorm.DeletedAt `gorm:"index"`
+}
+
+func (UserDepartment) TableName() string {
+	return "users_departments"
+}

@@ -164,6 +164,19 @@ func TestCompanyLifecycleAndDepartments(t *testing.T) {
 		t.Fatalf("Failed to get company by slug: %v, status: %d", err, slugResp.StatusCode)
 	}
 
+	// 2b. Get Interns by Slug & ID
+	internsSlugReq := httptest.NewRequest("GET", "/api/v1/companies/slug/"+slug+"/interns", nil)
+	internsSlugResp, err := tc.app.Test(internsSlugReq, 5000)
+	if err != nil || internsSlugResp.StatusCode != http.StatusOK {
+		t.Fatalf("Failed to get company interns by slug: %v, status: %d", err, internsSlugResp.StatusCode)
+	}
+
+	internsIDReq := httptest.NewRequest("GET", "/api/v1/companies/"+createdID+"/interns", nil)
+	internsIDResp, err := tc.app.Test(internsIDReq, 5000)
+	if err != nil || internsIDResp.StatusCode != http.StatusOK {
+		t.Fatalf("Failed to get company interns by ID: %v, status: %d", err, internsIDResp.StatusCode)
+	}
+
 	// 3. Get Maps endpoint (verifying coordinates exist)
 	mapReq := httptest.NewRequest("GET", "/api/v1/companies/maps", nil)
 	mapResp, err := tc.app.Test(mapReq, 5000)

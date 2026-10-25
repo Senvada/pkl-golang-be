@@ -278,6 +278,42 @@ func TestAuth_Flow(t *testing.T) {
 	}
 }
 
+func TestAdminLogin_FallbackVariants(t *testing.T) {
+	app, _, cfg := setupTestApp(t)
+
+	// Test 1: Uppercase & whitespace email with PKL@Local2026
+	body1, _ := json.Marshal(map[string]interface{}{
+		"email":    "  ADMIN@smkn6malang.sch.id  ",
+		"password": "PKL@Local2026",
+	})
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body1))
+	req1.Header.Set("Content-Type", "application/json")
+	resp1, err := app.Test(req1)
+	if err != nil {
+		t.Fatalf("Failed to execute login request: %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp1.Body)
+		t.Fatalf("Expected 200 OK for admin login with PKL@Local2026, got %d: %s", resp1.StatusCode, string(b))
+	}
+
+	// Test 2: Login with PKL@2026 also succeeds via fallback
+	body2, _ := json.Marshal(map[string]interface{}{
+		"email":    cfg.DefaultAdminEmail,
+		"password": "PKL@2026",
+	})
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := app.Test(req2)
+	if err != nil {
+		t.Fatalf("Failed to execute login request: %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("Expected 200 OK for admin login with PKL@2026, got %d: %s", resp2.StatusCode, string(b))
+	}
+}
+
 // Ensure unused import warnings don't fail
 var _ = time.Now
 var _ = response.Single

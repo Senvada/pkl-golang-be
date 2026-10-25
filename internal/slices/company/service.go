@@ -14,6 +14,7 @@ import (
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/middleware"
 	"pkl-golang-be/internal/shared/apperror"
+	"pkl-golang-be/internal/shared/authutil"
 	"pkl-golang-be/internal/shared/pagination"
 
 	"github.com/google/uuid"
@@ -26,6 +27,8 @@ type Service interface {
 	GetAll(ctx context.Context) ([]CompanyResponse, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*CompanyResponse, error)
 	GetBySlug(ctx context.Context, slug string) (*CompanyResponse, error)
+	GetInterns(ctx context.Context, companyID uuid.UUID) ([]CompanyInternResponse, error)
+	GetInternsBySlug(ctx context.Context, slug string) ([]CompanyInternResponse, error)
 	GetMaps(ctx context.Context) ([]CompanyMapResponse, error)
 	Create(ctx context.Context, actor *middleware.AuthClaims, req CreateCompanyRequest) (*CompanyResponse, error)
 	Update(ctx context.Context, actor *middleware.AuthClaims, id uuid.UUID, req UpdateCompanyRequest) (*CompanyResponse, error)
@@ -155,6 +158,211 @@ func (s *service) GetBySlug(ctx context.Context, slug string) (*CompanyResponse,
 	return &res[0], nil
 }
 
+func (s *service) GetInternsBySlug(ctx context.Context, slug string) ([]CompanyInternResponse, error) {
+	var c Company
+	if err := s.db.WithContext(ctx).
+		Where("slug = ? AND deleted_at IS NULL", slug).
+		First(&c).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperror.NotFound("Perusahaan mitra tidak ditemukan")
+		}
+		return nil, apperror.Internal("Gagal mengambil data perusahaan mitra", err)
+	}
+
+	return s.GetInterns(ctx, c.ID)
+}
+
+func (s *service) GetInterns(ctx context.Context, companyID uuid.UUID) ([]CompanyInternResponse, error) {
+	var comp Company
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND deleted_at IS NULL", companyID).
+		First(&comp).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperror.NotFound("Perusahaan mitra tidak ditemukan")
+		}
+		return nil, apperror.Internal("Gagal mengambil data perusahaan mitra", err)
+	}
+
+	type internRow struct {
+		ID           uuid.UUID  `gorm:"column:id"`
+		Name         string     `gorm:"column:name"`
+		AvatarURL    *string    `gorm:"column:avatar_url"`
+		DepartmentID *uuid.UUID `gorm:"column:department_id"`
+		DeptName     *string    `gorm:"column:dept_name"`
+		DeptCode     *string    `gorm:"column:dept_code"`
+		DeptColor    *string    `gorm:"column:dept_color"`
+		ParentID     *uuid.UUID `gorm:"column:parent_id"`
+	}
+
+	var rows []internRow
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Select(`users.id, users.name, users.avatar_url, users.department_id, users.parent_id,
+		        departments.name as dept_name, departments.code as dept_code, departments.color as dept_color`).
+		Joins("JOIN roles ON roles.id = users.role_id AND roles.deleted_at IS NULL").
+		Joins("LEFT JOIN departments ON departments.id = users.department_id AND departments.deleted_at IS NULL").
+		Where("users.company_id = ? AND users.deleted_at IS NULL AND (LOWER(roles.name) = 'siswa' OR LOWER(roles.name) LIKE '%siswa%' OR LOWER(roles.name) LIKE '%magang%')", companyID).
+		Order("users.name ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, apperror.Internal("Gagal mengambil data siswa PKL", err)
+	}
+
+	if len(rows) == 0 {
+		return []CompanyInternResponse{}, nil
+	}
+
+	// 1. Gather supervisor details
+	parentIDs := make([]uuid.UUID, 0)
+	for _, r := range rows {
+		if r.ParentID != nil && *r.ParentID != uuid.Nil {
+			parentIDs = append(parentIDs, *r.ParentID)
+		}
+	}
+
+	supMap := make(map[uuid.UUID]CompanyInternSupervisorResponse)
+	if len(parentIDs) > 0 {
+		type supervisorRow struct {
+			ID        uuid.UUID  `gorm:"column:id"`
+			Name      string     `gorm:"column:name"`
+			AvatarURL *string    `gorm:"column:avatar_url"`
+			RoleName  *string    `gorm:"column:role_name"`
+			DeptID    *uuid.UUID `gorm:"column:dept_id"`
+			DeptName  *string    `gorm:"column:dept_name"`
+			DeptCode  *string    `gorm:"column:dept_code"`
+			DeptColor *string    `gorm:"column:dept_color"`
+		}
+		var supRows []supervisorRow
+		_ = s.db.WithContext(ctx).
+			Table("users").
+			Select(`users.id, users.name, users.avatar_url, roles.name as role_name,
+			        departments.id as dept_id, departments.name as dept_name, departments.code as dept_code, departments.color as dept_color`).
+			Joins("LEFT JOIN roles ON roles.id = users.role_id AND roles.deleted_at IS NULL").
+			Joins("LEFT JOIN departments ON departments.id = users.department_id AND departments.deleted_at IS NULL").
+			Where("users.id IN ? AND users.deleted_at IS NULL", parentIDs).
+			Scan(&supRows)
+
+		for _, sr := range supRows {
+			roleName := "Guru Pembimbing"
+			if sr.RoleName != nil && *sr.RoleName != "" {
+				roleName = *sr.RoleName
+			}
+			var dept *CompanyDepartmentResponse
+			if sr.DeptID != nil {
+				name := ""
+				if sr.DeptName != nil {
+					name = *sr.DeptName
+				}
+				code := ""
+				if sr.DeptCode != nil {
+					code = *sr.DeptCode
+				}
+				color := ""
+				if sr.DeptColor != nil {
+					color = *sr.DeptColor
+				}
+				dept = &CompanyDepartmentResponse{
+					ID:    *sr.DeptID,
+					Name:  name,
+					Code:  code,
+					Color: color,
+				}
+			}
+			supMap[sr.ID] = CompanyInternSupervisorResponse{
+				ID:         sr.ID,
+				Name:       sr.Name,
+				AvatarURL:  sr.AvatarURL,
+				RoleName:   roleName,
+				Department: dept,
+			}
+		}
+	}
+
+	// 2. Gather published articles written by interns
+	internIDs := make([]uuid.UUID, len(rows))
+	for i, r := range rows {
+		internIDs[i] = r.ID
+	}
+
+	type articleRow struct {
+		ID          uuid.UUID  `gorm:"column:id"`
+		UserID      uuid.UUID  `gorm:"column:user_id"`
+		Title       string     `gorm:"column:title"`
+		Slug        string     `gorm:"column:slug"`
+		CoverURL    *string    `gorm:"column:cover_url"`
+		PublishedAt *time.Time `gorm:"column:published_at"`
+		CreatedAt   time.Time  `gorm:"column:created_at"`
+	}
+	var artRows []articleRow
+	_ = s.db.WithContext(ctx).
+		Table("articles").
+		Select("id, user_id, title, slug, cover_url, published_at, created_at").
+		Where("user_id IN ? AND status = 'published' AND deleted_at IS NULL", internIDs).
+		Order("published_at DESC NULLS LAST, created_at DESC").
+		Scan(&artRows)
+
+	artMap := make(map[uuid.UUID][]CompanyInternArticleResponse)
+	for _, ar := range artRows {
+		artMap[ar.UserID] = append(artMap[ar.UserID], CompanyInternArticleResponse{
+			ID:          ar.ID,
+			Title:       ar.Title,
+			Slug:        ar.Slug,
+			CoverURL:    ar.CoverURL,
+			PublishedAt: ar.PublishedAt,
+			CreatedAt:   ar.CreatedAt,
+		})
+	}
+
+	// 3. Assemble response
+	result := make([]CompanyInternResponse, len(rows))
+	for i, r := range rows {
+		var dept *CompanyDepartmentResponse
+		if r.DepartmentID != nil {
+			name := ""
+			if r.DeptName != nil {
+				name = *r.DeptName
+			}
+			code := ""
+			if r.DeptCode != nil {
+				code = *r.DeptCode
+			}
+			color := ""
+			if r.DeptColor != nil {
+				color = *r.DeptColor
+			}
+			dept = &CompanyDepartmentResponse{
+				ID:    *r.DepartmentID,
+				Name:  name,
+				Code:  code,
+				Color: color,
+			}
+		}
+
+		var sup *CompanyInternSupervisorResponse
+		if r.ParentID != nil {
+			if sInfo, ok := supMap[*r.ParentID]; ok {
+				sup = &sInfo
+			}
+		}
+
+		articles := artMap[r.ID]
+		if articles == nil {
+			articles = []CompanyInternArticleResponse{}
+		}
+
+		result[i] = CompanyInternResponse{
+			ID:         r.ID,
+			Name:       r.Name,
+			AvatarURL:  r.AvatarURL,
+			Department: dept,
+			Supervisor: sup,
+			Articles:   articles,
+		}
+	}
+
+	return result, nil
+}
+
 func (s *service) GetMaps(ctx context.Context) ([]CompanyMapResponse, error) {
 	var companies []Company
 	if err := s.db.WithContext(ctx).
@@ -234,7 +442,10 @@ func (s *service) GetMaps(ctx context.Context) ([]CompanyMapResponse, error) {
 func (s *service) Create(ctx context.Context, actor *middleware.AuthClaims, req CreateCompanyRequest) (*CompanyResponse, error) {
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	if !isAdmin {
-		return nil, apperror.Forbidden("Hanya administrator yang dapat mendaftarkan perusahaan mitra baru")
+		hasWrite, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "write")
+		if err != nil || !hasWrite {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mendaftarkan perusahaan mitra baru")
+		}
 	}
 
 	baseSlug := generateSlug(req.Name)
@@ -318,9 +529,18 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isMyCompany := actor.CompanyID != nil && *actor.CompanyID == id
+	isOwner := c.CreatedBy != nil && *c.CreatedBy == actor.UserID
 
+	hasUpdate := false
 	if !isAdmin && !isMyCompany {
-		return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengubah data perusahaan ini")
+		var err error
+		hasUpdate, err = authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "update")
+		if err != nil || !hasUpdate {
+			hasWrite, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "write")
+			if !hasWrite || !isOwner {
+				return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengubah data perusahaan ini")
+			}
+		}
 	}
 
 	updates := make(map[string]any)
@@ -368,8 +588,8 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 	if req.Lng != nil {
 		updates["lng"] = req.Lng
 	}
-	// Status change is restricted to Admin only
-	if req.Status != nil && isAdmin {
+	// Status change is restricted to Admin or users with update permission
+	if req.Status != nil && (isAdmin || hasUpdate) {
 		updates["status"] = *req.Status
 	}
 
@@ -384,8 +604,8 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 		}
 	}
 
-	// Update department associations if provided (Admin only)
-	if req.DepartmentIDs != nil && isAdmin {
+	// Update department associations if provided (Admin or update permission)
+	if req.DepartmentIDs != nil && (isAdmin || hasUpdate) {
 		// Hard delete old mappings for this company
 		if err := tx.Exec("DELETE FROM companies_departments WHERE company_id = ?", id).Error; err != nil {
 			tx.Rollback()
@@ -426,9 +646,16 @@ func (s *service) UpdateContent(ctx context.Context, actor *middleware.AuthClaim
 
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isMyCompany := actor.CompanyID != nil && *actor.CompanyID == id
+	isOwner := c.CreatedBy != nil && *c.CreatedBy == actor.UserID
 
 	if !isAdmin && !isMyCompany {
-		return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengedit konten perusahaan ini")
+		hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "update")
+		if !hasUpdate {
+			hasWrite, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "write")
+			if !hasWrite || !isOwner {
+				return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengedit konten perusahaan ini")
+			}
+		}
 	}
 
 	if err := s.db.WithContext(ctx).Model(&c).Updates(map[string]any{
@@ -445,7 +672,10 @@ func (s *service) UpdateContent(ctx context.Context, actor *middleware.AuthClaim
 func (s *service) Delete(ctx context.Context, actor *middleware.AuthClaims, id uuid.UUID) error {
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	if !isAdmin {
-		return apperror.Forbidden("Hanya administrator yang dapat menghapus data perusahaan mitra")
+		hasDelete, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "delete")
+		if err != nil || !hasDelete {
+			return apperror.Forbidden("Hanya administrator atau pengguna dengan hak akses hapus yang dapat menghapus data perusahaan mitra")
+		}
 	}
 
 	var c Company
@@ -483,7 +713,11 @@ func (s *service) GenerateImagePresignedURL(ctx context.Context, actor *middlewa
 	isMyCompany := actor.CompanyID != nil && (id == uuid.Nil || *actor.CompanyID == id)
 
 	if !isAdmin && !isMyCompany {
-		return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengunggah gambar untuk perusahaan ini")
+		hasWrite, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "write")
+		hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "company", "update")
+		if !hasWrite && !hasUpdate {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengunggah gambar untuk perusahaan ini")
+		}
 	}
 
 	var folderID string
