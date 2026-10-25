@@ -12,6 +12,7 @@ import (
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/middleware"
 	"pkl-golang-be/internal/shared/apperror"
+	"pkl-golang-be/internal/shared/authutil"
 	"pkl-golang-be/internal/shared/pagination"
 
 	"github.com/google/uuid"
@@ -80,14 +81,49 @@ func (s *service) GetArticles(ctx context.Context, actor *middleware.AuthClaims,
 		query = query.Where("articles.user_id = ?", *filter.UserID)
 	}
 
-	// Role scoping
+	// Role and tenancy scoping
 	isAdmin := actor != nil && strings.EqualFold(actor.RoleName, "admin")
-	if !isAdmin && actor != nil {
-		if strings.EqualFold(actor.RoleName, "industri") && actor.CompanyID != nil {
-			query = query.Where("articles.company_id = ?", *actor.CompanyID)
-		} else if strings.EqualFold(actor.RoleName, "siswa") {
-			// Siswa sees their own articles, or published articles
+	if actor == nil {
+		// Public anonymous view: only published articles
+		query = query.Where("articles.status = 'published'")
+	} else if !isAdmin {
+		if strings.EqualFold(actor.RoleName, "siswa") {
+			// Siswa base role: can see their own articles (any status) or published articles
 			query = query.Where("(articles.user_id = ? OR articles.status = 'published')", actor.UserID)
+		} else if strings.EqualFold(actor.RoleName, "industri") && actor.CompanyID != nil {
+			query = query.Where("(articles.company_id = ? OR articles.status = 'published')", *actor.CompanyID)
+		} else {
+			// Pembimbing / Guru / other roles with permissions and department bindings
+			hasPublish, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "publish")
+			hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "update")
+			actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
+
+			if len(actorDeptIDs) > 0 {
+				deptUsersSubquery := s.db.Table("users").Select("id").Where("department_id IN (?)", actorDeptIDs)
+				deptUsersJoinSubquery := s.db.Table("users_departments").Select("user_id").Where("department_id IN (?) AND deleted_at IS NULL", actorDeptIDs)
+				deptCompaniesSubquery := s.db.Table("companies_departments").Select("company_id").Where("department_id IN (?) AND deleted_at IS NULL", actorDeptIDs)
+
+				if hasUpdate {
+					// Can update any article in their department scope
+					query = query.Where("(articles.user_id = ? OR articles.status = 'published' OR articles.user_id IN (?) OR articles.user_id IN (?) OR articles.company_id IN (?))",
+						actor.UserID, deptUsersSubquery, deptUsersJoinSubquery, deptCompaniesSubquery)
+				} else if hasPublish {
+					// Can see review articles in their department scope, plus published and own
+					query = query.Where("(articles.user_id = ? OR articles.status = 'published' OR (articles.status = 'review' AND (articles.user_id IN (?) OR articles.user_id IN (?) OR articles.company_id IN (?))))",
+						actor.UserID, deptUsersSubquery, deptUsersJoinSubquery, deptCompaniesSubquery)
+				} else {
+					// Write only (own articles) + published
+					query = query.Where("(articles.user_id = ? OR articles.status = 'published')", actor.UserID)
+				}
+			} else {
+				if hasUpdate {
+					// No department restriction, can view all
+				} else if hasPublish {
+					query = query.Where("(articles.user_id = ? OR articles.status = 'published' OR articles.status = 'review')", actor.UserID)
+				} else {
+					query = query.Where("(articles.user_id = ? OR articles.status = 'published')", actor.UserID)
+				}
+			}
 		}
 	}
 
@@ -152,6 +188,37 @@ func (s *service) Create(ctx context.Context, actor *middleware.AuthClaims, req 
 		return nil, apperror.Unauthorized("Autentikasi diperlukan")
 	}
 
+	isAdmin := strings.EqualFold(actor.RoleName, "admin")
+	isSiswa := strings.EqualFold(actor.RoleName, "siswa")
+
+	if !isAdmin && !isSiswa {
+		hasWrite, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "write")
+		if err != nil || !hasWrite {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk membuat artikel baru")
+		}
+	}
+
+	if isSiswa {
+		var userCompanyID *uuid.UUID
+		if actor.CompanyID != nil && *actor.CompanyID != uuid.Nil {
+			userCompanyID = actor.CompanyID
+		} else {
+			var u struct {
+				CompanyID *uuid.UUID `gorm:"column:company_id"`
+			}
+			if err := s.db.WithContext(ctx).Table("users").Select("company_id").Where("id = ? AND deleted_at IS NULL", actor.UserID).Scan(&u).Error; err == nil {
+				userCompanyID = u.CompanyID
+			}
+		}
+
+		if userCompanyID == nil || *userCompanyID == uuid.Nil {
+			return nil, apperror.Forbidden("Akun siswa belum terikat dengan mitra industri. Anda belum dapat membuat artikel hingga terhubung dengan mitra industri.")
+		}
+
+		// Enforce that the student can only create articles for their bound company
+		req.CompanyID = *userCompanyID
+	}
+
 	// Verify company exists
 	var comp Company
 	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", req.CompanyID).First(&comp).Error; err != nil {
@@ -180,6 +247,13 @@ func (s *service) Create(ctx context.Context, actor *middleware.AuthClaims, req 
 	status := "draft"
 	if req.Status != "" {
 		status = req.Status
+	}
+
+	if status == "published" {
+		hasPublish, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "publish")
+		if !hasPublish && !isAdmin {
+			status = "draft" // Cannot directly publish without publish permission
+		}
 	}
 
 	var content datatypes.JSON
@@ -238,13 +312,31 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 		return nil, apperror.Internal("Gagal memuat artikel", err)
 	}
 
-	// Permission check: Admin, or Author, or Industri manager
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isAuthor := existing.UserID == actor.UserID
 	isCompanyOwner := strings.EqualFold(actor.RoleName, "industri") && actor.CompanyID != nil && *actor.CompanyID == existing.CompanyID
+	isSiswa := strings.EqualFold(actor.RoleName, "siswa")
 
-	if !isAdmin && !isAuthor && !isCompanyOwner {
-		return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengubah artikel ini")
+	hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "update")
+	hasPublish, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "publish")
+	hasWrite, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "write")
+
+	// Check if this request is purely a status transition
+	isStatusOnly := req.Status != nil && req.Title == nil && req.CompanyID == nil && req.CoverURL == nil && req.Style == nil && req.Content == nil
+
+	if !isAdmin && !isCompanyOwner {
+		if isAuthor {
+			if !hasWrite && !isSiswa {
+				return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengubah artikel ini")
+			}
+		} else {
+			// Non-author:
+			if isStatusOnly && hasPublish {
+				// User with publish permission can transition status (e.g. review -> published or reject)
+			} else if !hasUpdate {
+				return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengubah artikel milik pengguna lain")
+			}
+		}
 	}
 
 	updates := make(map[string]any)
@@ -270,6 +362,9 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 	}
 
 	if req.CompanyID != nil && *req.CompanyID != existing.CompanyID {
+		if isSiswa {
+			return nil, apperror.Forbidden("Siswa tidak dapat mengubah perusahaan mitra yang telah ditentukan")
+		}
 		updates["company_id"] = *req.CompanyID
 	}
 
@@ -296,6 +391,11 @@ func (s *service) Update(ctx context.Context, actor *middleware.AuthClaims, id u
 
 	if req.Status != nil && *req.Status != "" {
 		newStatus := *req.Status
+		if newStatus == "published" {
+			if !hasPublish && !isAdmin {
+				return nil, apperror.Forbidden("Hanya pengguna dengan izin publikasi yang dapat merilis artikel ke publik")
+			}
+		}
 		updates["status"] = newStatus
 		if newStatus == "published" && existing.PublishedAt == nil {
 			now := time.Now()
@@ -337,8 +437,9 @@ func (s *service) Delete(ctx context.Context, actor *middleware.AuthClaims, id u
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
 	isAuthor := existing.UserID == actor.UserID
 	isCompanyOwner := strings.EqualFold(actor.RoleName, "industri") && actor.CompanyID != nil && *actor.CompanyID == existing.CompanyID
+	hasDelete, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "article", "delete")
 
-	if !isAdmin && !isAuthor && !isCompanyOwner {
+	if !isAdmin && !isAuthor && !isCompanyOwner && !hasDelete {
 		return apperror.Forbidden("Anda tidak memiliki izin untuk menghapus artikel ini")
 	}
 

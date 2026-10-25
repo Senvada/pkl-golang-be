@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"strings"
+
 	"pkl-golang-be/internal/config"
 	"pkl-golang-be/internal/middleware"
 	"pkl-golang-be/internal/shared/apperror"
@@ -28,6 +30,9 @@ func (h *Handler) Register(c *fiber.Ctx) error {
 		return apperror.BadRequest("Format data permintaan tidak valid", err)
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(req.Email)
+
 	if errs := validator.ValidateStruct(&req); len(errs) > 0 {
 		return apperror.Validation("Validasi form pendaftaran gagal", errs)
 	}
@@ -47,6 +52,8 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return apperror.BadRequest("Format data permintaan tidak valid", err)
 	}
+
+	req.Email = strings.TrimSpace(req.Email)
 
 	if errs := validator.ValidateStruct(&req); len(errs) > 0 {
 		return apperror.Validation("Validasi form masuk gagal", errs)

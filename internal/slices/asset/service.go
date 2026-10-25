@@ -13,6 +13,7 @@ import (
 	"pkl-golang-be/internal/infra/storage"
 	"pkl-golang-be/internal/middleware"
 	"pkl-golang-be/internal/shared/apperror"
+	"pkl-golang-be/internal/shared/authutil"
 	"pkl-golang-be/internal/shared/pagination"
 
 	"github.com/google/uuid"
@@ -58,6 +59,15 @@ func (s *service) PresignUpload(ctx context.Context, actor *middleware.AuthClaim
 		return nil, apperror.Internal("Layanan penyimpanan storage belum diinisialisasi", errors.New("s3 client is nil"))
 	}
 
+	isAdmin := strings.EqualFold(actor.RoleName, "admin")
+	isSiswa := strings.EqualFold(actor.RoleName, "siswa")
+	if !isAdmin && !isSiswa {
+		hasWrite, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "write")
+		if err != nil || !hasWrite {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk mengunggah berkas ke galeri")
+		}
+	}
+
 	folder := strings.Trim(req.Folder, "/")
 	if folder == "" {
 		folder = "assets"
@@ -89,6 +99,15 @@ func (s *service) PresignUpload(ctx context.Context, actor *middleware.AuthClaim
 }
 
 func (s *service) CreateAsset(ctx context.Context, actor *middleware.AuthClaims, req CreateAssetRequest) (*AssetResponse, error) {
+	isAdmin := strings.EqualFold(actor.RoleName, "admin")
+	isSiswa := strings.EqualFold(actor.RoleName, "siswa")
+	if !isAdmin && !isSiswa {
+		hasWrite, err := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "write")
+		if err != nil || !hasWrite {
+			return nil, apperror.Forbidden("Anda tidak memiliki izin untuk menyimpan berkas ke galeri")
+		}
+	}
+
 	asset := Asset{
 		ID:        uuid.New(),
 		Path:      req.Path,
@@ -108,6 +127,15 @@ func (s *service) CreateAsset(ctx context.Context, actor *middleware.AuthClaims,
 
 func (s *service) GetAssets(ctx context.Context, actor *middleware.AuthClaims, filter AssetFilterQuery, p pagination.Params) ([]AssetResponse, pagination.Meta, error) {
 	query := s.db.WithContext(ctx).Model(&Asset{}).Where("deleted_at IS NULL")
+
+	isAdmin := strings.EqualFold(actor.RoleName, "admin")
+	hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "update")
+	hasDelete, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "delete")
+
+	if !isAdmin && !hasUpdate && !hasDelete {
+		// Only has write (own assets) or is Siswa base role: restricted to own gallery!
+		query = query.Where("created_by = ?", actor.UserID)
+	}
 
 	if filter.MimeType != "" {
 		if strings.EqualFold(filter.MimeType, "image") {
@@ -148,6 +176,13 @@ func (s *service) GetAssetByID(ctx context.Context, actor *middleware.AuthClaims
 		return nil, apperror.Internal("Gagal mengambil data aset", err)
 	}
 
+	isAdmin := strings.EqualFold(actor.RoleName, "admin")
+	hasUpdate, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "update")
+	hasDelete, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "delete")
+	if !isAdmin && !hasUpdate && !hasDelete && asset.CreatedBy != actor.UserID {
+		return nil, apperror.Forbidden("Anda tidak memiliki izin untuk melihat aset pengguna lain")
+	}
+
 	return s.toResponse(asset), nil
 }
 
@@ -160,10 +195,12 @@ func (s *service) DeleteAsset(ctx context.Context, actor *middleware.AuthClaims,
 		return apperror.Internal("Gagal menemukan aset", err)
 	}
 
-	// Only admin or owner can delete
 	isAdmin := strings.EqualFold(actor.RoleName, "admin")
-	if !isAdmin && asset.CreatedBy != actor.UserID {
-		return apperror.Forbidden("Anda tidak memiliki izin untuk menghapus aset ini")
+	isOwner := asset.CreatedBy == actor.UserID
+	hasDelete, _ := authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "asset", "delete")
+
+	if !isAdmin && !isOwner && !hasDelete {
+		return apperror.Forbidden("Anda tidak memiliki izin untuk menghapus berkas media milik orang lain")
 	}
 
 	// Delete from storage if client exists

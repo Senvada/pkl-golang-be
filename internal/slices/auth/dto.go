@@ -22,16 +22,18 @@ type GoogleAuthRequest struct {
 }
 
 type UserProfileDTO struct {
-	ID           uuid.UUID  `json:"id"`
-	Name         string     `json:"name"`
-	Email        string     `json:"email"`
-	AvatarURL    *string    `json:"avatar_url"`
-	Status       string     `json:"status"`
-	RoleID       uuid.UUID  `json:"role_id"`
-	RoleName     string     `json:"role_name"`
-	DepartmentID *uuid.UUID `json:"department_id,omitempty"`
-	CompanyID    *uuid.UUID `json:"company_id,omitempty"`
-	GoogleBound  bool       `json:"google_bound"`
+	ID            uuid.UUID                  `json:"id"`
+	Name          string                     `json:"name"`
+	Email         string                     `json:"email"`
+	AvatarURL     *string                    `json:"avatar_url"`
+	Status        string                     `json:"status"`
+	RoleID        uuid.UUID                  `json:"role_id"`
+	RoleName      string                     `json:"role_name"`
+	DepartmentID  *uuid.UUID                 `json:"department_id,omitempty"`
+	DepartmentIDs []uuid.UUID                `json:"department_ids,omitempty"`
+	CompanyID     *uuid.UUID                 `json:"company_id,omitempty"`
+	GoogleBound   bool                       `json:"google_bound"`
+	Permissions   map[string]map[string]bool `json:"permissions,omitempty"`
 }
 
 type AuthResponse struct {

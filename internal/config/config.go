@@ -113,7 +113,7 @@ func LoadConfigFromLookup(lookup func(string) (string, bool)) (*Config, error) {
 		// Default Admin Seeder (Strict in production: admin credentials must be explicitly configured)
 		DefaultAdminName:     loader.getStrict("DEFAULT_ADMIN_NAME", "Administrator PKL"),
 		DefaultAdminEmail:    loader.getStrict("DEFAULT_ADMIN_EMAIL", "admin@smkn6malang.sch.id"),
-		DefaultAdminPassword: loader.getStrict("DEFAULT_ADMIN_PASSWORD", "PKL@2026"),
+		DefaultAdminPassword: loader.getStrict("DEFAULT_ADMIN_PASSWORD", "PKL@Local2026"),
 
 		// Bootstrap
 		AutoBootstrap: loader.getSafeBool("AUTO_BOOTSTRAP", true),

@@ -9,6 +9,7 @@ import (
 
 	"pkl-golang-be/internal/config"
 	"pkl-golang-be/internal/shared/apperror"
+	"pkl-golang-be/internal/shared/authutil"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -276,43 +277,5 @@ func (s *service) CheckPermission(ctx context.Context, roleID uuid.UUID, module 
 		return false, err
 	}
 
-	// Admin role has universal permission
-	if strings.EqualFold(role.Name, "Admin") {
-		return true, nil
-	}
-
-	if len(role.Permissions) == 0 {
-		return false, nil
-	}
-
-	var permMap map[string]interface{}
-	if err := json.Unmarshal(role.Permissions, &permMap); err != nil {
-		return false, nil
-	}
-
-	// Check if admin wildcard flag exists
-	if adminVal, ok := permMap["admin"]; ok {
-		if isAdmin, ok := adminVal.(bool); ok && isAdmin {
-			return true, nil
-		}
-	}
-
-	// Check module map: {"role": {"read": true}}
-	modVal, ok := permMap[module]
-	if !ok {
-		return false, nil
-	}
-
-	actionsMap, ok := modVal.(map[string]interface{})
-	if !ok {
-		return false, nil
-	}
-
-	actVal, ok := actionsMap[action]
-	if !ok {
-		return false, nil
-	}
-
-	hasPerm, ok := actVal.(bool)
-	return hasPerm && ok, nil
+	return authutil.CheckRolePermission(ctx, s.db, role.ID, role.Name, module, action)
 }

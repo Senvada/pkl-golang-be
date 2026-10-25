@@ -106,3 +106,36 @@ type ResolveMapsResponse struct {
 	Lat float64 `json:"lat"`
 	Lng float64 `json:"lng"`
 }
+
+type CompanyDepartmentResponse struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Code  string    `json:"code"`
+	Color string    `json:"color"`
+}
+
+type CompanyInternSupervisorResponse struct {
+	ID         uuid.UUID                  `json:"id"`
+	Name       string                     `json:"name"`
+	AvatarURL  *string                    `json:"avatar_url"`
+	RoleName   string                     `json:"role_name"`
+	Department *CompanyDepartmentResponse `json:"department,omitempty"`
+}
+
+type CompanyInternArticleResponse struct {
+	ID          uuid.UUID  `json:"id"`
+	Title       string     `json:"title"`
+	Slug        string     `json:"slug"`
+	CoverURL    *string    `json:"cover_url"`
+	PublishedAt *time.Time `json:"published_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type CompanyInternResponse struct {
+	ID         uuid.UUID                        `json:"id"`
+	Name       string                           `json:"name"`
+	AvatarURL  *string                          `json:"avatar_url"`
+	Department *CompanyDepartmentResponse       `json:"department,omitempty"`
+	Supervisor *CompanyInternSupervisorResponse `json:"supervisor,omitempty"`
+	Articles   []CompanyInternArticleResponse   `json:"articles"`
+}

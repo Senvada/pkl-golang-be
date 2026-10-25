@@ -76,7 +76,7 @@ func setupArticleTest(t *testing.T) *testArticleContext {
 }
 
 func getAdminToken(t *testing.T, tc *testArticleContext) string {
-	_ = seeder.EnsureDefaultAdmin(tc.db, tc.cfg)
+	_ = seeder.SeedDefaultAdmin(tc.db, tc.cfg, seeder.Options{ForceUpdatePassword: true})
 
 	loginPayload := auth.LoginRequest{
 		Email:    tc.cfg.DefaultAdminEmail,
@@ -270,5 +270,104 @@ func TestArticleLifecycleWithEmptyContent(t *testing.T) {
 	defer delResp.Body.Close()
 	if delResp.StatusCode != http.StatusOK {
 		t.Fatalf("Delete returned non-200 (%d)", delResp.StatusCode)
+	}
+}
+
+func TestSiswaArticleCreationCompanyBinding(t *testing.T) {
+	tc := setupArticleTest(t)
+	tokenAdmin := getAdminToken(t, tc)
+	companyIDStr := createTestCompany(t, tc, tokenAdmin)
+	companyID, _ := uuid.Parse(companyIDStr)
+
+	// Get Siswa Role
+	var siswaRole auth.Role
+	if err := tc.db.Where("name = ?", "Siswa").First(&siswaRole).Error; err != nil {
+		t.Fatalf("Role Siswa not found: %v", err)
+	}
+
+	// 1. Siswa without company_id
+	unboundSiswa := auth.User{
+		Name:     "Siswa Tanpa Industri",
+		Email:    fmt.Sprintf("siswa.unbound.%d@smkn6malang.sch.id", time.Now().UnixNano()),
+		Password: "password123",
+		RoleID:   siswaRole.ID,
+		Status:   "active",
+	}
+	if err := tc.db.Create(&unboundSiswa).Error; err != nil {
+		t.Fatalf("Failed to create unbound siswa: %v", err)
+	}
+
+	unboundToken, _, err := auth.GenerateAccessToken(&unboundSiswa, "Siswa", tc.cfg.JWTSecret)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	createPayload := article.CreateArticleRequest{
+		Title:     "Artikel Siswa Tanpa Mitra",
+		CompanyID: companyID,
+		Status:    "draft",
+	}
+	body, _ := json.Marshal(createPayload)
+	req := httptest.NewRequest("POST", "/api/v1/articles", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+unboundToken)
+
+	resp, err := tc.app.Test(req, 10000)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("Expected 403 Forbidden for unbound siswa, got %d", resp.StatusCode)
+	}
+
+	// 2. Siswa with bound company
+	boundSiswa := auth.User{
+		Name:      "Siswa Terikat Industri",
+		Email:     fmt.Sprintf("siswa.bound.%d@smkn6malang.sch.id", time.Now().UnixNano()),
+		Password:  "password123",
+		RoleID:    siswaRole.ID,
+		CompanyID: &companyID,
+		Status:    "active",
+	}
+	if err := tc.db.Create(&boundSiswa).Error; err != nil {
+		t.Fatalf("Failed to create bound siswa: %v", err)
+	}
+
+	boundToken, _, err := auth.GenerateAccessToken(&boundSiswa, "Siswa", tc.cfg.JWTSecret)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	// Submit with empty companyID or different companyID - it must lock to bound companyID
+	anotherCompanyID := uuid.New()
+	createPayload2 := article.CreateArticleRequest{
+		Title:     fmt.Sprintf("Artikel Siswa Terikat %d", time.Now().UnixNano()),
+		CompanyID: anotherCompanyID,
+		Status:    "draft",
+	}
+	body2, _ := json.Marshal(createPayload2)
+	req2 := httptest.NewRequest("POST", "/api/v1/articles", bytes.NewReader(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", "Bearer "+boundToken)
+
+	resp2, err := tc.app.Test(req2, 10000)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusCreated {
+		respBody2, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("Expected 201 Created for bound siswa, got %d: %s", resp2.StatusCode, string(respBody2))
+	}
+
+	var createResp response.Envelope
+	_ = json.NewDecoder(resp2.Body).Decode(&createResp)
+	createdData := createResp.Data.(map[string]any)
+	compMap := createdData["company"].(map[string]any)
+	if compMap["id"] != companyIDStr {
+		t.Fatalf("Expected article locked to bound company %s, got %s", companyIDStr, compMap["id"])
 	}
 }

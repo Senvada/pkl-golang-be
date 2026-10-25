@@ -81,6 +81,35 @@ func (h *Handler) GetBySlug(c *fiber.Ctx) error {
 	return response.Single(c, company, "Detail perusahaan mitra berhasil diambil")
 }
 
+func (h *Handler) GetInternsByID(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return apperror.BadRequest("ID perusahaan tidak valid", err)
+	}
+
+	interns, err := h.service.GetInterns(c.Context(), id)
+	if err != nil {
+		return err
+	}
+
+	return response.Single(c, interns, "Daftar siswa PKL berhasil diambil")
+}
+
+func (h *Handler) GetInternsBySlug(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	if slug == "" {
+		return apperror.BadRequest("Slug perusahaan tidak boleh kosong", nil)
+	}
+
+	interns, err := h.service.GetInternsBySlug(c.Context(), slug)
+	if err != nil {
+		return err
+	}
+
+	return response.Single(c, interns, "Daftar siswa PKL berhasil diambil")
+}
+
 func (h *Handler) GetMaps(c *fiber.Ctx) error {
 	mapsData, err := h.service.GetMaps(c.Context())
 	if err != nil {

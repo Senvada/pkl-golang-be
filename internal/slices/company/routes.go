@@ -15,7 +15,9 @@ func RegisterRoutes(router fiber.Router, h *Handler, cfg *config.Config) {
 	// Public routes
 	companiesGroup.Get("", h.GetCompanies)
 	companiesGroup.Get("/maps", h.GetMaps)
+	companiesGroup.Get("/slug/:slug/interns", h.GetInternsBySlug)
 	companiesGroup.Get("/slug/:slug", h.GetBySlug)
+	companiesGroup.Get("/:id/interns", h.GetInternsByID)
 	companiesGroup.Get("/:id", h.GetByID)
 
 	// Protected routes

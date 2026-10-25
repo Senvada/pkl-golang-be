@@ -25,7 +25,11 @@ func EnsureDefaultAdmin(db *gorm.DB, cfg *config.Config) error {
 	if err := EnsureDefaultRolesAndDepartments(db); err != nil {
 		slog.Warn("Failed to ensure default roles and departments", "error", err)
 	}
-	return SeedDefaultAdmin(db, cfg, Options{})
+	opts := Options{}
+	if !cfg.IsProduction() {
+		opts.ForceUpdatePassword = true
+	}
+	return SeedDefaultAdmin(db, cfg, opts)
 }
 
 // SeedRoles seeds initial roles if not yet created.
@@ -38,10 +42,9 @@ func SeedRoles(db *gorm.DB) error {
 
 	roles := []defaultRole{
 		{Name: "Admin", Color: "#EF4444", Perm: `{"admin": true}`},
-		{Name: "Industri", Color: "#8B5CF6", Perm: `{"company": {"read": true, "update": true}, "users": {"read": true, "create": true, "update": true}, "article": {"read": true, "create": true, "update": true}}`},
-		{Name: "Guru", Color: "#10B981", Perm: `{"users": {"read": true}, "company": {"read": true}, "article": {"read": true}}`},
-		{Name: "Pembimbing", Color: "#F59E0B", Perm: `{"users": {"read": true}, "company": {"read": true}, "article": {"read": true}}`},
-		{Name: "Siswa", Color: "#06B6D4", Perm: `{"article": {"read": true, "create": true, "update": true}, "company": {"read": true}}`},
+		{Name: "Industri", Color: "#8B5CF6", Perm: `{"company": {"write": true, "update": true}, "users": {"write": true, "update": true}, "article": {"write": true, "update": true}, "asset": {"write": true}}`},
+		{Name: "Pembimbing", Color: "#F59E0B", Perm: `{"article": {"write": true, "publish": true, "update": true}, "users": {"write": true, "update": true}, "asset": {"write": true}}`},
+		{Name: "Siswa", Color: "#06B6D4", Perm: `{"article": {"write": true}, "asset": {"write": true}}`},
 	}
 
 	for _, r := range roles {
@@ -52,6 +55,8 @@ func SeedRoles(db *gorm.DB) error {
 				return fmt.Errorf("failed to insert default role %s: %w", r.Name, err)
 			}
 			slog.Info("✅ Seeded default role", "name", r.Name)
+		} else {
+			_ = db.Exec("UPDATE roles SET permissions = ?::jsonb, updated_at = CURRENT_TIMESTAMP WHERE name = ? AND deleted_at IS NULL", r.Perm, r.Name).Error
 		}
 	}
 
