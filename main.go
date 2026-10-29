@@ -292,6 +292,15 @@ func runSeed(cfg *config.Config, args []string) {
 			}
 			slog.Info("✅ Roles seeder finished successfully!")
 			return
+
+		case "assessments", "penilaian":
+			slog.Info("Running assessments seeder (8 PDF templates)...")
+			if err := seeder.SeedAssessments(db); err != nil {
+				slog.Error("Assessments seeder failed", "error", err)
+				os.Exit(1)
+			}
+			slog.Info("✅ Assessments seeder finished successfully!")
+			return
 		}
 	}
 
