@@ -419,9 +419,82 @@ SET
     behavior_aspects = EXCLUDED.behavior_aspects,
     updated_at = CURRENT_TIMESTAMP;
 
--- Pastikan template SIJA dan KJIJ belum dibuat / dibersihkan karena penilaian periode 2026 masih dalam proses
-DELETE FROM assessment_templates
-WHERE department_id IN (SELECT id FROM departments WHERE code IN ('SIJA', 'KJIJ'))
-  AND period_id IN (SELECT id FROM academic_periods WHERE name = '2025/2026');
+-- ------------------------------------------------------------------------------
+-- 9. SIJA (Sistem Informasi, Jaringan, dan Aplikasi - Template Kosong)
+-- ------------------------------------------------------------------------------
+INSERT INTO assessment_templates (
+    id,
+    department_id,
+    period_id,
+    title,
+    work_aspects,
+    behavior_aspects,
+    created_at,
+    updated_at
+)
+SELECT
+    gen_random_uuid(),
+    d.id,
+    p.id,
+    'Daftar Penilaian Praktik Kerja Lapangan - Sistem Informasi, Jaringan, dan Aplikasi',
+    '[]'::jsonb,
+    '[
+        {"id": "beh-1", "title": "Disiplin"},
+        {"id": "beh-2", "title": "Kerjasama"},
+        {"id": "beh-3", "title": "Pelayanan"},
+        {"id": "beh-4", "title": "Integritas"},
+        {"id": "beh-5", "title": "Kepemimpinan"}
+    ]'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+FROM departments d
+CROSS JOIN academic_periods p
+WHERE d.code = 'SIJA' AND d.deleted_at IS NULL
+  AND p.name = '2025/2026' AND p.deleted_at IS NULL
+ON CONFLICT (department_id, period_id) WHERE deleted_at IS NULL DO UPDATE
+SET
+    title = EXCLUDED.title,
+    work_aspects = EXCLUDED.work_aspects,
+    behavior_aspects = EXCLUDED.behavior_aspects,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ------------------------------------------------------------------------------
+-- 10. KJIJ (Konstruksi Jalan, Irigasi, dan Jembatan - Template Kosong)
+-- ------------------------------------------------------------------------------
+INSERT INTO assessment_templates (
+    id,
+    department_id,
+    period_id,
+    title,
+    work_aspects,
+    behavior_aspects,
+    created_at,
+    updated_at
+)
+SELECT
+    gen_random_uuid(),
+    d.id,
+    p.id,
+    'Daftar Penilaian Praktik Kerja Lapangan - Konstruksi Jalan, Irigasi, dan Jembatan',
+    '[]'::jsonb,
+    '[
+        {"id": "beh-1", "title": "Disiplin"},
+        {"id": "beh-2", "title": "Kerjasama"},
+        {"id": "beh-3", "title": "Pelayanan"},
+        {"id": "beh-4", "title": "Integritas"},
+        {"id": "beh-5", "title": "Kepemimpinan"}
+    ]'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+FROM departments d
+CROSS JOIN academic_periods p
+WHERE d.code = 'KJIJ' AND d.deleted_at IS NULL
+  AND p.name = '2025/2026' AND p.deleted_at IS NULL
+ON CONFLICT (department_id, period_id) WHERE deleted_at IS NULL DO UPDATE
+SET
+    title = EXCLUDED.title,
+    work_aspects = EXCLUDED.work_aspects,
+    behavior_aspects = EXCLUDED.behavior_aspects,
+    updated_at = CURRENT_TIMESTAMP;
 
 END $$;

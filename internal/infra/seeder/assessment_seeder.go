@@ -222,6 +222,20 @@ func SeedAssessments(db *gorm.DB) error {
 				{ID: uuid.NewString(), Title: "Sistem Manajemen Kesehatan dan Keselamatan Kerja"},
 			},
 		},
+		// 9. SIJA (Format belum final dari PDF, template dibuat kosong)
+		{
+			DeptCode: "SIJA",
+			Title:    "Daftar Penilaian Praktik Kerja Lapangan - Sistem Informasi, Jaringan, dan Aplikasi",
+			Behavior: standardBehaviorAspects,
+			Work:     []AspectTemplateItem{},
+		},
+		// 10. KJIJ (Format belum final dari PDF, template dibuat kosong)
+		{
+			DeptCode: "KJIJ",
+			Title:    "Daftar Penilaian Praktik Kerja Lapangan - Konstruksi Jalan, Irigasi, dan Jembatan",
+			Behavior: standardBehaviorAspects,
+			Work:     []AspectTemplateItem{},
+		},
 	}
 
 	for _, tpl := range templates {
@@ -254,11 +268,6 @@ func SeedAssessments(db *gorm.DB) error {
 			}
 		}
 	}
-
-	// Clean up any templates for departments where format is not yet finalized (SIJA, KJIJ)
-	_ = db.Exec(`DELETE FROM assessment_templates 
-		WHERE department_id IN (SELECT id FROM departments WHERE code IN ('SIJA', 'KJIJ')) 
-		AND period_id = ?`, periodID).Error
 
 	return nil
 }

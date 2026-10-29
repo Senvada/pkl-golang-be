@@ -142,7 +142,7 @@ func TestSeederSQL_Execution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to count assessment templates: %v", err)
 	}
-	if count != 8 {
-		t.Fatalf("Expected exactly 8 seeded templates (without SIJA & KJIJ), got %d", count)
+	if count != 10 {
+		t.Fatalf("Expected 10 templates (8 with items, 2 empty for SIJA & KJIJ), got %d", count)
 	}
 }
