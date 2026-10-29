@@ -43,7 +43,7 @@ func SeedRoles(db *gorm.DB) error {
 	roles := []defaultRole{
 		{Name: "Admin", Color: "#EF4444", Perm: `{"admin": true}`},
 		{Name: "Industri", Color: "#8B5CF6", Perm: `{"company": {"write": true, "update": true}, "users": {"write": true, "update": true}, "article": {"write": true, "update": true}, "asset": {"write": true}}`},
-		{Name: "Pembimbing", Color: "#F59E0B", Perm: `{"article": {"write": true, "publish": true, "update": true}, "users": {"write": true, "update": true}, "asset": {"write": true}}`},
+		{Name: "Pembimbing", Color: "#F59E0B", Perm: `{"article": {"write": true, "publish": true, "update": true}, "users": {"write": true, "update": true}, "asset": {"write": true}, "assessment": {"write": true, "update": true}}`},
 		{Name: "Siswa", Color: "#06B6D4", Perm: `{"article": {"write": true}, "asset": {"write": true}}`},
 	}
 
@@ -105,7 +105,10 @@ func EnsureDefaultRolesAndDepartments(db *gorm.DB) error {
 	if err := SeedRoles(db); err != nil {
 		return err
 	}
-	return SeedDepartments(db)
+	if err := SeedDepartments(db); err != nil {
+		return err
+	}
+	return SeedAssessments(db)
 }
 
 // SeedDefaultAdmin seeds the default admin user with configurable options.

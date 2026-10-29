@@ -94,6 +94,12 @@ func CheckRolePermission(ctx context.Context, db *gorm.DB, roleID uuid.UUID, rol
 				return false, nil
 			}
 			return true, nil
+		case "assessment":
+			// Siswa can read templates and submit/update their own assessment
+			if strings.EqualFold(action, "delete") {
+				return false, nil
+			}
+			return true, nil
 		default:
 			// For other modules (company, users, role, department), check explicit permissions
 		}
@@ -196,7 +202,7 @@ func GetRolePermissions(ctx context.Context, db *gorm.DB, roleID uuid.UUID) (map
 		}
 	}
 
-	allModules := []string{"users", "article", "company", "asset", "department", "role"}
+	allModules := []string{"users", "article", "company", "asset", "department", "role", "assessment"}
 	res := make(map[string]map[string]bool)
 
 	for _, mod := range allModules {
@@ -208,10 +214,10 @@ func GetRolePermissions(ctx context.Context, db *gorm.DB, roleID uuid.UUID) (map
 			if mod == "article" {
 				modMap["publish"] = true
 			}
-		} else if isSiswa && (mod == "article" || mod == "asset") {
-			// Siswa base role has own article and gallery access
+		} else if isSiswa && (mod == "article" || mod == "asset" || mod == "assessment") {
+			// Siswa base role has own article, gallery, and assessment access
 			modMap["write"] = true
-			modMap["update"] = false
+			modMap["update"] = true
 			modMap["delete"] = false
 			if mod == "article" {
 				modMap["publish"] = false
