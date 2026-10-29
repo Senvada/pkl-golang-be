@@ -1,19 +1,21 @@
 package seeder_test
 
 import (
+	"os"
 	"testing"
-	"time"
 
 	"pkl-golang-be/internal/config"
 	"pkl-golang-be/internal/infra/database"
 	"pkl-golang-be/internal/infra/seeder"
 	"pkl-golang-be/internal/slices/auth"
 
+	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 func TestSeedDefaultAdmin_LifecycleAndSoftDelete(t *testing.T) {
+	_ = godotenv.Load("../../../.env")
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
@@ -111,5 +113,36 @@ func TestSeedDefaultAdmin_LifecycleAndSoftDelete(t *testing.T) {
 	if restoredUser.Status != "active" {
 		t.Fatalf("Expected restored user to have active status, got %s", restoredUser.Status)
 	}
-	_ = time.Now()
+}
+
+func TestSeederSQL_Execution(t *testing.T) {
+	_ = godotenv.Load("../../../.env")
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	db, err := database.Connect(cfg)
+	if err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../database/seeder.sql")
+	if err != nil {
+		t.Fatalf("Failed to read seeder.sql: %v", err)
+	}
+
+	if err := db.Exec(string(sqlBytes)).Error; err != nil {
+		t.Fatalf("Failed to execute seeder.sql: %v", err)
+	}
+	var count int64
+	err = db.Table("assessment_templates").
+		Joins("JOIN academic_periods ON academic_periods.id = assessment_templates.period_id").
+		Where("academic_periods.name = ? AND assessment_templates.deleted_at IS NULL", "2025/2026").
+		Count(&count).Error
+	if err != nil {
+		t.Fatalf("Failed to count assessment templates: %v", err)
+	}
+	if count != 8 {
+		t.Fatalf("Expected exactly 8 seeded templates (without SIJA & KJIJ), got %d", count)
+	}
 }

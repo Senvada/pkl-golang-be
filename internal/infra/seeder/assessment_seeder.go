@@ -34,9 +34,11 @@ func SeedAssessments(db *gorm.DB) error {
 		}
 		slog.Info("✅ Seeded default academic period 2025/2026")
 	} else {
-		if err := db.Table("academic_periods").Select("id").Where("name = ? AND deleted_at IS NULL", "2025/2026").Scan(&periodID).Error; err != nil {
+		var period struct{ ID uuid.UUID }
+		if err := db.Table("academic_periods").Select("id").Where("name = ? AND deleted_at IS NULL", "2025/2026").Scan(&period).Error; err != nil {
 			return fmt.Errorf("failed to fetch academic period id: %w", err)
 		}
+		periodID = period.ID
 	}
 
 	// 2. Fetch all departments
@@ -220,34 +222,6 @@ func SeedAssessments(db *gorm.DB) error {
 				{ID: uuid.NewString(), Title: "Sistem Manajemen Kesehatan dan Keselamatan Kerja"},
 			},
 		},
-		// 9. SIJA
-		{
-			DeptCode: "SIJA",
-			Title:    "Daftar Penilaian Praktik Kerja Lapangan - Sistem Informasi, Jaringan, dan Aplikasi",
-			Behavior: standardBehaviorAspects,
-			Work: []AspectTemplateItem{
-				{ID: uuid.NewString(), Title: "Sistem Komputer dan Komputasi Awan (Cloud Computing)"},
-				{ID: uuid.NewString(), Title: "Administrasi Sistem Jaringan dan Server"},
-				{ID: uuid.NewString(), Title: "Perancangan dan Pengembangan Sistem Informasi Berbasis Web/Mobile"},
-				{ID: uuid.NewString(), Title: "Internet of Things (IoT) dan Integrasi Sensor"},
-				{ID: uuid.NewString(), Title: "Keamanan Sistem dan Jaringan (Cyber Security)"},
-				{ID: uuid.NewString(), Title: "K3LH pada Lingkungan Kerja TI"},
-			},
-		},
-		// 10. KJIJ
-		{
-			DeptCode: "KJIJ",
-			Title:    "Daftar Penilaian Praktik Kerja Lapangan - Konstruksi Jalan, Irigasi, dan Jembatan",
-			Behavior: standardBehaviorAspects,
-			Work: []AspectTemplateItem{
-				{ID: uuid.NewString(), Title: "Penerapan Prosedur K3 Konstruksi Sipil"},
-				{ID: uuid.NewString(), Title: "Gambar Teknik Konstruksi Jalan, Irigasi, dan Jembatan (AutoCAD/BIM)"},
-				{ID: uuid.NewString(), Title: "Pengukuran dan Pemetaan Topografi Lokasi Proyek"},
-				{ID: uuid.NewString(), Title: "Pengujian dan Pengawasan Material Konstruksi Jalan & Jembatan"},
-				{ID: uuid.NewString(), Title: "Penyusunan Rencana Anggaran Biaya (RAB) dan Jadwal Proyek"},
-				{ID: uuid.NewString(), Title: "Pengawasan Pelaksanaan Pekerjaan Lapangan Konstruksi Sipil"},
-			},
-		},
 	}
 
 	for _, tpl := range templates {
@@ -280,6 +254,11 @@ func SeedAssessments(db *gorm.DB) error {
 			}
 		}
 	}
+
+	// Clean up any templates for departments where format is not yet finalized (SIJA, KJIJ)
+	_ = db.Exec(`DELETE FROM assessment_templates 
+		WHERE department_id IN (SELECT id FROM departments WHERE code IN ('SIJA', 'KJIJ')) 
+		AND period_id = ?`, periodID).Error
 
 	return nil
 }
