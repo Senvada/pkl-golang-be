@@ -82,7 +82,15 @@ func (s *service) GetArticles(ctx context.Context, actor *middleware.AuthClaims,
 	}
 
 	// Role and tenancy scoping
-	isAdmin := actor != nil && strings.EqualFold(actor.RoleName, "admin")
+	isAdmin := false
+	if actor != nil {
+		if strings.EqualFold(actor.RoleName, "admin") {
+			isAdmin = true
+		} else {
+			isAdmin, _ = authutil.CheckRolePermission(ctx, s.db, actor.RoleID, actor.RoleName, "admin", "")
+		}
+	}
+
 	if actor == nil {
 		// Public anonymous view: only published articles
 		query = query.Where("articles.status = 'published'")
@@ -99,18 +107,22 @@ func (s *service) GetArticles(ctx context.Context, actor *middleware.AuthClaims,
 			actorDeptIDs, _ := authutil.GetUserDepartmentIDs(ctx, s.db, actor.UserID)
 
 			if len(actorDeptIDs) > 0 {
-				deptUsersSubquery := s.db.Table("users").Select("id").Where("department_id IN (?)", actorDeptIDs)
-				deptUsersJoinSubquery := s.db.Table("users_departments").Select("user_id").Where("department_id IN (?) AND deleted_at IS NULL", actorDeptIDs)
-				deptCompaniesSubquery := s.db.Table("companies_departments").Select("company_id").Where("department_id IN (?) AND deleted_at IS NULL", actorDeptIDs)
-
 				if hasUpdate {
 					// Can update any article in their department scope
-					query = query.Where("(articles.user_id = ? OR articles.status = 'published' OR articles.user_id IN (?) OR articles.user_id IN (?) OR articles.company_id IN (?))",
-						actor.UserID, deptUsersSubquery, deptUsersJoinSubquery, deptCompaniesSubquery)
+					query = query.Where(`(articles.user_id = ? OR articles.status = 'published' 
+						OR articles.user_id IN (SELECT id FROM users WHERE department_id IN (?) AND deleted_at IS NULL) 
+						OR articles.user_id IN (SELECT user_id FROM users_departments WHERE department_id IN (?) AND deleted_at IS NULL) 
+						OR articles.company_id IN (SELECT company_id FROM companies_departments WHERE department_id IN (?) AND deleted_at IS NULL))`,
+						actor.UserID, actorDeptIDs, actorDeptIDs, actorDeptIDs)
 				} else if hasPublish {
 					// Can see review articles in their department scope, plus published and own
-					query = query.Where("(articles.user_id = ? OR articles.status = 'published' OR (articles.status = 'review' AND (articles.user_id IN (?) OR articles.user_id IN (?) OR articles.company_id IN (?))))",
-						actor.UserID, deptUsersSubquery, deptUsersJoinSubquery, deptCompaniesSubquery)
+					query = query.Where(`(articles.user_id = ? OR articles.status = 'published' 
+						OR (articles.status = 'review' AND (
+							articles.user_id IN (SELECT id FROM users WHERE department_id IN (?) AND deleted_at IS NULL) 
+							OR articles.user_id IN (SELECT user_id FROM users_departments WHERE department_id IN (?) AND deleted_at IS NULL) 
+							OR articles.company_id IN (SELECT company_id FROM companies_departments WHERE department_id IN (?) AND deleted_at IS NULL)
+						)))`,
+						actor.UserID, actorDeptIDs, actorDeptIDs, actorDeptIDs)
 				} else {
 					// Write only (own articles) + published
 					query = query.Where("(articles.user_id = ? OR articles.status = 'published')", actor.UserID)

@@ -63,3 +63,35 @@ func GetAuthUser(c *fiber.Ctx) (*AuthClaims, bool) {
 	}
 	return claims, true
 }
+
+func NewOptionalAuthMiddleware(cfg *config.Config) fiber.Handler {
+	secretBytes := []byte(cfg.JWTSecret)
+
+	return func(c *fiber.Ctx) error {
+		authHeader := c.Get("Authorization")
+		if authHeader == "" {
+			return c.Next()
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			return c.Next()
+		}
+
+		tokenString := parts[1]
+		claims := &AuthClaims{}
+
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, errors.New("unexpected signing method")
+			}
+			return secretBytes, nil
+		})
+
+		if err == nil && token.Valid {
+			c.Locals(AuthUserKey, claims)
+		}
+
+		return c.Next()
+	}
+}

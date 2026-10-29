@@ -371,3 +371,67 @@ func TestSiswaArticleCreationCompanyBinding(t *testing.T) {
 		t.Fatalf("Expected article locked to bound company %s, got %s", companyIDStr, compMap["id"])
 	}
 }
+
+func TestGetArticlesAuthenticationAndScoping(t *testing.T) {
+	tc := setupArticleTest(t)
+
+	// 1. Admin login to obtain token
+	adminToken := getAdminToken(t, tc)
+
+	// 2. Public request (no token): Should only return published articles
+	pubReq := httptest.NewRequest("GET", "/api/v1/articles?limit=50", nil)
+	pubResp, err := tc.app.Test(pubReq, 5000)
+	if err != nil {
+		t.Fatalf("Public articles request failed: %v", err)
+	}
+	defer pubResp.Body.Close()
+	if pubResp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200 OK for public request, got %d", pubResp.StatusCode)
+	}
+
+	var pubResult response.Envelope
+	_ = json.NewDecoder(pubResp.Body).Decode(&pubResult)
+	pubArticles, ok := pubResult.Data.([]any)
+	if !ok {
+		t.Fatalf("Expected articles array in data, got %T", pubResult.Data)
+	}
+	for _, art := range pubArticles {
+		artMap := art.(map[string]any)
+		if artMap["status"] != "published" {
+			t.Fatalf("Public endpoint returned non-published article with status: %v", artMap["status"])
+		}
+	}
+
+	// 3. Admin request (with Authorization Bearer): Must see draft and all articles
+	adminReq := httptest.NewRequest("GET", "/api/v1/articles?limit=50", nil)
+	adminReq.Header.Set("Authorization", "Bearer "+adminToken)
+	adminResp, err := tc.app.Test(adminReq, 5000)
+	if err != nil {
+		t.Fatalf("Admin articles request failed: %v", err)
+	}
+	defer adminResp.Body.Close()
+	if adminResp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200 OK for admin request, got %d", adminResp.StatusCode)
+	}
+
+	var adminResult response.Envelope
+	_ = json.NewDecoder(adminResp.Body).Decode(&adminResult)
+	adminArticles, ok := adminResult.Data.([]any)
+	if !ok {
+		t.Fatalf("Expected articles array in data, got %T", adminResult.Data)
+	}
+
+	// In DB we know there are active draft articles, so admin must see them!
+	foundDraft := false
+	for _, art := range adminArticles {
+		artMap := art.(map[string]any)
+		if artMap["status"] == "draft" {
+			foundDraft = true
+			break
+		}
+	}
+
+	if !foundDraft {
+		t.Fatalf("Admin failed to see draft articles! Total seen by admin: %d", len(adminArticles))
+	}
+}
